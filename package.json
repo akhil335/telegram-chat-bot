@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "main": "mini_grok_bot.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+ "scripts": {
+  "start": "node mini_grok_bot.js",
+  "dev": "nodemon mini_grok_bot.js"
   },
   "keywords": [],
   "author": "",

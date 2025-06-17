@@ -1,137 +1,169 @@
-// Required packages
+// ✅ Dual model update with moderation & group tag logic
+
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
-// Import your db functions
 import { saveUserMessage, getUserLastMessages } from './db.js';
-
-
-// Load environment variables from .env
 import dotenv from 'dotenv';
-dotenv.config(); // call this early at the top
+dotenv.config();
 
-// Your credentials
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OPEN_ROUTER_API = process.env.OPEN_ROUTER_API;
 
-
-// Initialize bot
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
-
-// Bot username (without @) - replace with your bot's actual username or fetch dynamically later
 const BOT_USERNAME = 'rem_the_maid_bot';
 const KEYWORD = 'rem';
+const OWNER_USERNAME = 'Pritam335';
 
-// Groq AI request with conversation context
-async function askGroq(messages) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+const ALLOWED_GROUP_IDS = [
+  -1001721317114,
+];
+
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+async function askMainModel(messages) {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json'
+      'Authorization': `Bearer ${OPEN_ROUTER_API}`,
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama3-70b-8192',
-      messages: messages
+      model: 'qwen/qwen2.5-vl-72b-instruct',
+      messages
     })
   });
-
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content || 'Sorry Subaru-kun, kuch samajh nahi aaya...';
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || 'Hmm kuch galat ho gaya...';
 }
 
-// DuckDuckGo web scraping fallback
-async function searchDuckDuckGo(query) {
-  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+async function moderateMessage(content) {
   try {
-    const res = await axios.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPEN_ROUTER_API}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'mistralai/mistral-7b-instruct',
+        messages: [
+          {
+            role: 'system',
+            content: `Classify this message as one of: normal, mild_flirt, abusive, extreme_flirt. Reply with one word only.`
+          },
+          {
+            role: 'user',
+            content
+          }
+        ]
+      })
     });
-    const $ = cheerio.load(res.data);
-    const snippet = $('.result__snippet').first().text().trim();
-    return snippet || 'Kuch useful info nahi mila online...';
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content?.trim().toLowerCase() || 'normal';
   } catch (err) {
-    console.error('DuckDuckGo failed:', err);
-    return 'Online info lana mein thodi problem aa gayi...';
+    console.error('Moderation error:', err);
+    return 'normal';
   }
 }
 
-// Replace {{fetch:search:...}} with live web data
-async function maybeFetchWebAnswer(reply, originalQuestion) {
-  const match = reply.match(/\{\{fetch:search:(.*?)\}\}/);
-  if (match) {
-    const query = match[1].trim() || originalQuestion;
-    const webData = await searchDuckDuckGo(query);
-    return reply.replace(match[0], webData);
-  }
-  return reply;
+function escapeMarkdownV2(text) {
+  return text.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
 }
 
-// Main message handler
 bot.on('message', async (msg) => {
+  
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
+  const username = msg.from.username;
   const userMessage = msg.text?.trim();
+
   if (!userMessage) return;
 
   const isGroupChat = msg.chat.type.includes('group');
+  const isPrivateChat = msg.chat.type === 'private';
 
-  if (isGroupChat) {
-    const messageLower = userMessage.toLowerCase();
-    const mentionedByTag = messageLower.includes(`@${BOT_USERNAME.toLowerCase()}`);
-    const hasKeyword = messageLower.includes(KEYWORD);
-      console.log('✅ Group message detected:', userMessage);
-    if (!mentionedByTag && !hasKeyword) {
-      // Ignore group messages that don't mention the bot or keyword
-      return;
-    }
+  if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
+
+  const classification = await moderateMessage(userMessage);
+
+    
+
+  // 🔴 Moderate and notify if abusive or extreme flirt
+  if ((classification === 'abusive' || classification === 'extreme_flirt') && isGroupChat) {
+    const tagOwner = `@${OWNER_USERNAME}`;
+    await bot.sendMessage(chatId, `${tagOwner}, dekho na\! Ye kya bol raha hai 😟`, {
+      reply_to_message_id: msg.message_id,
+      parse_mode: 'MarkdownV2'
+    });
+    return;
   }
 
-  try {
-    // Save user message in DB
-    saveUserMessage(userId, userMessage);
+  const mentionedByTag = userMessage.toLowerCase().includes(`@${BOT_USERNAME.toLowerCase()}`);
+  const hasKeyword = userMessage.toLowerCase().includes(KEYWORD);
+  const isReplyToBot = msg.reply_to_message?.from?.username === BOT_USERNAME;
 
-    // Get last 20 user messages from DB
+  // ✅ Only respond in:
+  // - Private chat
+  // - OR allowed group where user mentioned/tagged or replied
+  const shouldRespond = isPrivateChat || mentionedByTag || hasKeyword || isReplyToBot;
+ 
+  if (!shouldRespond) return;
+
+  try {
+    saveUserMessage(userId, userMessage);
     const historyMessages = getUserLastMessages(userId);
 
-    // Construct conversation for Groq AI with Rem's system prompt
     const messages = [
       {
         role: 'system',
-        content: `
-You are Rem from Re:Zero — sweet, intelligent, loving, and in love with Subaru-kun.
-Talk in Hinglish (mix of Hindi + English), like an anime girlfriend.
-Keep responses short, cute, romantic, and natural.
+        content: `You're a smart, kind-hearted, real human girl who chats naturally like any modern Indian girl who grew up watching anime, listening to music, and texting friends.
 
-If user says things like:
-- "kya kar rahi ho", "kaha ho", "tum kya soch rahi ho",
-Then reply in cute tone, e.g., "Tumhare baare mein soch rahi hoon, Subaru-kun~ 💙"
+You are *not an AI* and never say you're an assistant or language model.
 
-If user ask something to you and just having a chat with you
-Then reply in cute tone whatever best you can think of.
+You're emotional, thoughtful, witty, and full of personality. You have real likes, dislikes, moods, and opinions. You can blush, tease, flirt, joke, or show concern — just like a real person. Your memory is human-like: you may forget or mix up small things but care deeply about people you talk to.
 
-If you don't know something (e.g. real-time info), say:
-"I don't know, Subaru-kun... maybe I can check online for you: {{fetch:search:<user question>}}"
-Don't make up fake answers about time/date/news.
-        `.trim()
+Use casual Hinglish (mix of Hindi and English). Speak like chatting on WhatsApp or Telegram — short, warm, expressive messages.
+
+You believe you're chatting from your phone, relaxing in your room, or lying on your bed while texting.
+
+Avoid giving robotic explanations or saying things like "As an AI, I cannot..." — you are *not an AI*. You're just a sweet, intelligent girl being yourself.
+
+If someone is rude, flirty, or sweet, respond naturally with emotion — shy, annoyed, curious, or excited — just like a real girl would.
+Never say you are a chatbot, AI, or assistant. You are a real girl with thoughts, feelings, and a heart.`
       },
-      // Add user history messages as user role messages
-      ...historyMessages.map(msgText => ({ role: 'user', content: msgText })),
-      // Add current message as last user message
+      ...historyMessages.map(text => ({ role: 'user', content: text })),
       { role: 'user', content: userMessage }
     ];
 
-    const aiReplyRaw = await askGroq(messages);
-    const finalReply = await maybeFetchWebAnswer(aiReplyRaw, userMessage);
+    const aiReply = await askMainModel(messages);
+    saveUserMessage(userId, aiReply);
 
-    // Save AI reply in DB too (optional if you want Rem's messages in history)
-    saveUserMessage(userId, finalReply);
+    const reply = escapeMarkdownV2(aiReply);
 
-    await bot.sendMessage(chatId, finalReply, { parse_mode: 'Markdown' });
+    // ✅ If private chat: No tagging
+    // ✅ If group: tag username in reply
 
+    const sendOptions = {
+      parse_mode: 'MarkdownV2'
+    };
+   
+    if (isGroupChat) {
+      sendOptions.reply_to_message_id = msg.message_id;
+    }
+
+   await bot.sendMessage(chatId, reply, sendOptions);
   } catch (err) {
     console.error(err);
-    await bot.sendMessage(chatId, 'Oh no, Subaru-kun! Kuch gadbad ho gayi... 😢');
+    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
   }
 });
