@@ -15,6 +15,8 @@ dotenv.config(); // call this early at the top
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
+console.log('Telegram Token:', TELEGRAM_TOKEN ? 'Loaded ✅' : 'Missing ❌');
+
 // Initialize bot
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
