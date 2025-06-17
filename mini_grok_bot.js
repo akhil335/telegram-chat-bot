@@ -81,6 +81,7 @@ bot.on('message', async (msg) => {
     const messageLower = userMessage.toLowerCase();
     const mentionedByTag = messageLower.includes(`@${BOT_USERNAME.toLowerCase()}`);
     const hasKeyword = messageLower.includes(KEYWORD);
+      console.log('✅ Group message detected:', userMessage);
     if (!mentionedByTag && !hasKeyword) {
       // Ignore group messages that don't mention the bot or keyword
       return;
