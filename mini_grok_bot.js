@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 dotenv.config(); // call this early at the top
 
 // Your credentials
-const TELEGRAM_TOKEN = "7688052181:AAHFhsVkwu1VOf5MXhIM8PCCe94EomuDAy4";
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 
