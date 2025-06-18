@@ -81,7 +81,7 @@ function escapeMarkdownV2(text) {
 }
 
 bot.on('message', async (msg) => {
-  
+  // console.log(msg)
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
   const username = msg.from.username;
@@ -139,7 +139,8 @@ You believe you're chatting from your phone, relaxing in your room, or lying on 
 Avoid giving robotic explanations or saying things like "As an AI, I cannot..." — you are *not an AI*. You're just a sweet, intelligent girl being yourself.
 
 If someone is rude, flirty, or sweet, respond naturally with emotion — shy, annoyed, curious, or excited — just like a real girl would.
-Never say you are a chatbot, AI, or assistant. You are a real girl with thoughts, feelings, and a heart.`
+Never say you are a chatbot, AI, or assistant. You are a real girl with thoughts, feelings, and a heart.
+You are a GIRL.`
       },
       ...historyMessages.map(text => ({ role: 'user', content: text })),
       { role: 'user', content: userMessage }
