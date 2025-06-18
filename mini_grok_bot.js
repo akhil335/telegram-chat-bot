@@ -101,7 +101,7 @@ bot.on('message', async (msg) => {
   // 🔴 Moderate and notify if abusive or extreme flirt
   if ((classification === 'abusive' || classification === 'extreme_flirt') && isGroupChat) {
     const tagOwner = `@${OWNER_USERNAME}`;
-    await bot.sendMessage(chatId, `${tagOwner}, dekho na\! Ye kya bol raha hai 😟`, {
+    await bot.sendMessage(chatId, `${tagOwner}, dekho na! Ye kya bol raha hai 😟`, {
       reply_to_message_id: msg.message_id,
       parse_mode: 'MarkdownV2'
     });
