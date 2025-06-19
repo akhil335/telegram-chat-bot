@@ -56,23 +56,28 @@ const moderationActions = {
   },
 
   unmute: async (ctx, targetId, username) => {
-    if (!targetId) return `Mujhe ${username} ka ID nahi mila 😔`;
+  if (!targetId) return `Mujhe ${username} ka ID nahi mila 😔`;
 
-    try {
-      await ctx.bot.restrictChatMember(ctx.chat.id, targetId, {
-        permissions: {
-          can_send_messages: true,
-          can_send_media_messages: true,
-          can_send_other_messages: true,
-          can_add_web_page_previews: true,
-        },
-      });
-      return `Okayy~ ${username} ab bol sakta hai phir se 💬`;
-    } catch (err) {
-      console.error('Unmute error:', err);
-      return `Unmute karne mein dikkat ho gayi 😥`;
+  try {
+    const member = await ctx.bot.getChatMember(ctx.chat.id, targetId);
+    const perms = member?.can_send_messages;
+
+    if (perms === true) {
+      return `${username} pehle se hi bol sakta hai 😅`;
     }
-  },
+
+    await ctx.bot.restrictChatMember(ctx.chat.id, targetId, {
+        can_send_messages: true,
+      });
+
+  
+    return `Okayy~ ${username} ab bol sakta hai phir se 💬`;
+  } catch (err) {
+    console.error('Unmute error:', err.response?.description || err);
+    return `Unmute karne mein dikkat ho gayi 😥`;
+  }
+  }
+,
 
   ban: async (ctx, targetId, username) => {
     if (!targetId) return `Mujhe ${username} ka ID nahi mila 😔`;
@@ -130,21 +135,23 @@ export async function handleModerationCommand(text, userIdMap, bot, chat, msg) {
   }
 
   const muteMatch = lower.match(/for\s+(\d+)\s*(sec|min|hour|hr|h|m|s)/);
-  if (lower.includes('mute')) {
-    const dur = muteMatch ? `${muteMatch[1]} ${muteMatch[2]}` : null;
-    return await moderationActions.mute(ctx, replyUserId, userName, dur);
-  }
 
   if (lower.includes('unmute')) {
     return await moderationActions.unmute(ctx, replyUserId, userName);
   }
 
-  if (lower.includes('ban')) {
-    return await moderationActions.ban(ctx, replyUserId, userName);
-  }
-
   if (lower.includes('unban')) {
     return await moderationActions.unban(ctx, replyUserId, userName);
+  }
+
+
+  if (lower.includes('mute')) {
+    const dur = muteMatch ? `${muteMatch[1]} ${muteMatch[2]}` : null;
+    return await moderationActions.mute(ctx, replyUserId, userName, dur);
+  }
+
+  if (lower.includes('ban')) {
+    return await moderationActions.ban(ctx, replyUserId, userName);
   }
 
   return null;

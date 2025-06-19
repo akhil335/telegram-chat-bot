@@ -43,29 +43,41 @@ async function askMainModel(messages) {
     const data = await res.json();
     if (!res.ok) {
       console.error('Groq API error:', data);
-      return 'Oops... Groq se kuch galat ho gaya \ud83d\ude13';
+      return 'Oops... Groq se kuch galat ho gaya 😓';
     }
 
-    return data?.choices?.[0]?.message?.content?.trim() || 'Hmm... Rem confuse ho gayi \ud83d\ude05';
+    return data?.choices?.[0]?.message?.content?.trim() || 'Hmm... Rem confuse ho gayi 😅';
   } catch (err) {
     console.error('Groq network error:', err);
-    return 'Network ka chakkar hai shayad... thodi der baad try karo \ud83e\udd7a';
+    return 'Network ka chakkar hai shayad... thodi der baad try karo 🥺';
   }
 }
 
 async function getNormalizedCommand(userMessage) {
-  const prompt = `Convert this into a moderation command. Assume the message is targeting the person being replied to.
-Examples:
-- "rem isko 10 min ke liye mute kar do" => "mute @username for 10 min"
-- "ban this guy" => "ban @username"
-- "isko warn karo" => "warn @username"
+  const prompt = `
+You are a Telegram moderation bot.
 
-User message: "${userMessage}"
+Your job is to convert a user's message into one of the following commands (and ONLY these):
+- mute @username for [duration]
+- unmute @username
+- warn @username
+- ban @username
+- unban @username
 
-Output:`;
+Assume the user is replying to someone when saying things like:
+- "isko mute kar do"
+- "unmute him"
+- "ban this guy"
+
+Respond ONLY with the command line. Do not add any notes, descriptions, or explanations.
+
+Input message: "${userMessage}"
+Output:
+`.trim();
 
   return await askMainModel([{ role: 'user', content: prompt }]);
 }
+
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -84,17 +96,16 @@ bot.on('message', async (msg) => {
   const shouldRespond = isPrivateChat || mentioned || hasKeyword || isReplyToBot;
 
   const lowered = userMessage.toLowerCase();
-  const containsModKeyword = ['warn', 'mute', 'ban'].some(k => lowered.includes(k));
+  const containsModKeyword = ['warn', 'mute', 'ban', 'unmute', 'unban', 'unwarn'].some(k => lowered.includes(k));
 
+  // 🔒 Block non-admins from triggering mod commands (even funny messages like "ban him")
+  if (containsModKeyword) {
+    if (!ADMINS.includes(username)) return;
+    if (!msg.reply_to_message) return; // ignore if not a reply
+  }
+
+  // ✅ Only proceed with mod command if admin & it's a reply
   if (containsModKeyword && msg.reply_to_message) {
-    if (!ADMINS.includes(username)) {
-      await bot.sendMessage(chatId, escapeMarkdownV2(`Sorry \ud83d\ude23 par mai ye nahi kar sakti!`), {
-        parse_mode: 'MarkdownV2',
-        reply_to_message_id: msg.message_id
-      });
-      return;
-    }
-
     const chatMembers = await bot.getChatAdministrators(chatId);
     const userIdMap = {};
     for (const member of chatMembers) {
@@ -105,12 +116,13 @@ bot.on('message', async (msg) => {
 
     const targetUsername = msg.reply_to_message?.from?.username;
     const normalized = await getNormalizedCommand(userMessage);
+   
     const cleaned = normalized.toLowerCase();
     const durationMatch = cleaned.match(/(\d+)\s*(s|sec|min|m|hr|h|hour|hours)/i);
     const duration = durationMatch ? `${durationMatch[1]} ${durationMatch[2]}` : null;
 
     let response = null;
-
+    console.log(cleaned)
     if (cleaned.includes('unmute')) {
       response = await handleModerationCommand(`unmute @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('mute')) {
@@ -192,6 +204,6 @@ Always respond honestly and like a normal person.
     });
   } catch (err) {
     console.error('Bot error:', err);
-    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai \ud83d\ude16');
+    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
   }
 });
