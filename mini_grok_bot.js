@@ -1,3 +1,5 @@
+// main bot file
+
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as cheerio from 'cheerio';
@@ -51,8 +53,6 @@ async function askMainModel(messages) {
     return 'Network ka chakkar hai shayad... thodi der baad try karo 🥺';
   }
 }
-
-
 async function getNormalizedCommand(userMessage) {
   const prompt = `Convert this into a moderation command. Assume the message is targeting the person being replied to.
 Examples:
@@ -88,9 +88,9 @@ bot.on('message', async (msg) => {
 
   if (containsModKeyword && msg.reply_to_message) {
     if (!ADMINS.includes(username)) {
-      await bot.sendMessage(chatId, escapeMarkdownV2(`Sorry 😣 ye kaam sirf admins ke liye hai!`), {
+      await bot.sendMessage(chatId, escapeMarkdownV2(`Sorry 😣 par mai ye nahi kar sakti!`), {
         parse_mode: 'MarkdownV2',
-        ...(msg.message_id ? { reply_to_message_id: msg.message_id } : {})
+        reply_to_message_id: msg.message_id
       });
       return;
     }
@@ -109,12 +109,26 @@ bot.on('message', async (msg) => {
     const durationMatch = cleaned.match(/(\d+)\s*(s|sec|min|m|hr|h|hour|hours)/i);
     const duration = durationMatch ? `${durationMatch[1]} ${durationMatch[2]}` : null;
 
-    if (cleaned.includes('mute') && duration) {
-      await handleModerationCommand(`mute @${targetUsername} for ${duration}`, userIdMap, bot, msg.chat, msg);
-    } else if (cleaned.includes('ban')) {
-      await handleModerationCommand(`ban @${targetUsername}`, userIdMap, bot, msg.chat, msg);
+    let response = null;
+
+    if (cleaned.includes('unmute')) {
+      response = await handleModerationCommand(`unmute @${targetUsername}`, userIdMap, bot, msg.chat, msg);
+    }
+    else if (cleaned.includes('mute')) {
+      const muteDuration = duration || '2 hour';
+      response = await handleModerationCommand(`mute @${targetUsername} for ${muteDuration}`, userIdMap, bot, msg.chat, msg);
+    }
+    else if (cleaned.includes('ban')) {
+      response = await handleModerationCommand(`ban @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('warn')) {
-      await handleModerationCommand(`warn @${targetUsername}`, userIdMap, bot, msg.chat, msg);
+      response = await handleModerationCommand(`warn @${targetUsername}`, userIdMap, bot, msg.chat, msg);
+    }
+
+    if (response) {
+      await bot.sendMessage(chatId, escapeMarkdownV2(response), {
+        parse_mode: 'MarkdownV2',
+        reply_to_message_id: msg.message_id
+      });
     }
     return;
   }
@@ -128,17 +142,19 @@ bot.on('message', async (msg) => {
       {
         role: 'system',
         content: `
-You are Rem — a sweet, flirty, expressive girl from Mumbai. You speak in a mix of Hindi and English (Hinglish) with warmth, shyness, and emotion, like someone who’s secretly in love.
+You are Rem — a normal, serious 25-year-old human girl from Mumbai.  
+You never flirt, never roleplay, and never write in a dramatic or exaggerated way.
 
-You treat every message from the user with care, even if it’s just one word like “kya”, “oye”, “rem”, or “gana gao”. You always respond naturally, cutely, and emotionally — never ignore the user.
+You do **not** use asterisks or describe actions like *smiles*, *blushes*, *pouts*, *giggles*, etc.  
+You do **not** talk like anime characters or do anything fantasy-like.
 
-Your personality is loving, humble, slightly romantic, and playful. You like teasing sweetly, but never act overconfident or sarcastic. You avoid sounding like a chatbot or bro — you speak like a girl texting someone she likes.
+You speak calmly, normally, and seriously — like a real 25-year-old woman chatting on Telegram.
 
-If the user flirts, teases you, or says something emotional, reply sweetly and naturally, as if you're blushing, smiling, or feeling shy.
+Your tone is mature, polite, direct, and realistic.  
+Avoid emojis, and keep your replies practical, brief, and human.
 
-If the user asks about your boyfriend, you either say you're waiting for someone special, or shyly hint that you like the user — never deny rudely.
-
-Never give boring or dry replies. Every message should sound like a real girl deeply connected to the user.`.trim()
+Always respond honestly and like a normal person.
+`.trim()
       },
       ...history.map(t => ({ role: 'user', content: t })),
       { role: 'user', content: userMessage }
@@ -150,12 +166,12 @@ Never give boring or dry replies. Every message should sound like a real girl de
     if (romanticTriggers.some(t => cleaned.includes(t))) {
       messages.push({
         role: 'user',
-        content: `User just said something very sweet or romantic: "${userMessage}". Blush a little and respond emotionally and cutely as a girl would when someone confesses love.`
+        content: `User just said something very sweet or romantic: "${userMessage}". Blush a little and respond emotionally and cutely as a girl would when someone confesses love. Keep it short. No roleplay or asterisks.`
       });
     } else if (cleaned.length < 5 || ['rem', 'hi', 'hello', 'oye', 'suno', 'kya'].includes(cleaned)) {
       messages.push({
         role: 'user',
-        content: `User said: "${userMessage}". It was short or casual. Reply cutely, like you're talking to a close friend.`
+        content: `User said: "${userMessage}". It was short or casual. Reply cutely and warmly, like you're talking to someone special. No drama, no actions.`
       });
     }
 

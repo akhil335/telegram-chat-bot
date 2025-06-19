@@ -36,8 +36,7 @@ const moderationActions = {
   mute: async (ctx, targetId, username, duration) => {
 
     const seconds = parseDuration(duration);
-    console.log(seconds, targetId)
-    console.log('Until date:', Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + seconds)
+    
     if (!seconds) return `Hmm mujhe time samajh nahi aaya 🥺`;
     if (!targetId) return `Mujhe ${username} ka ID nahi mila 😔`;
 
@@ -51,13 +50,8 @@ const moderationActions = {
   unmute: async (ctx, targetId, username) => {
     if (!targetId) return `Mujhe ${username} ka ID nahi mila 😔`;
 
-    await ctx.bot.restrictChatMember(ctx.chat.id, targetId, {
-      permissions: {
-        can_send_messages: true,
-        can_send_media_messages: true,
-        can_send_other_messages: true,
-        can_add_web_page_previews: true,
-      },
+   await ctx.bot.promoteChatMember(ctx.chat.id, targetId, {
+      can_send_messages: true,
     });
     return `Okayy~ ${username} ab bol sakta hai phir se 💬`;
   },
@@ -85,8 +79,11 @@ export async function handleModerationCommand(text, userIdMap, bot, chat, msg) {
 
   const replyUserId = msg.reply_to_message?.from?.id;
   const replyUsername = msg.reply_to_message?.from?.username?.toLowerCase();
+  const name = (msg.reply_to_message?.from?.first_name || '') + ' ' + (msg.reply_to_message?.from?.last_name || '')
+  const userName = replyUsername ? replyUsername : name
+  
 
-  if (!replyUserId || !replyUsername) {
+  if (!replyUserId) {
     return `Mujhe pata nahi chala kispe command lagani hai 😅 Please kisi ko reply karke command do`;
   }
 
@@ -95,26 +92,27 @@ export async function handleModerationCommand(text, userIdMap, bot, chat, msg) {
   }
 
   if (lower.includes('warn')) {
-    return await moderationActions.warn(ctx, replyUserId, replyUsername);
+    return await moderationActions.warn(ctx, replyUserId, userName);
   }
 
   const muteMatch = lower.match(/for\s+(\d+)\s*(sec|min|hour|hr|h|m|s)/);
   if (lower.includes('mute') && muteMatch) {
+    
     const dur = `${muteMatch[1]} ${muteMatch[2]}`;
-    console.log('under')
-    return await moderationActions.mute(ctx, replyUserId, replyUsername, dur);
+
+    return await moderationActions.mute(ctx, replyUserId, userName, dur);
   }
 
   if (lower.includes('unmute')) {
-    return await moderationActions.unmute(ctx, replyUserId, replyUsername);
+    return await moderationActions.unmute(ctx, replyUserId, userName);
   }
 
   if (lower.includes('ban')) {
-    return await moderationActions.ban(ctx, replyUserId, replyUsername);
+    return await moderationActions.ban(ctx, replyUserId, userName);
   }
 
   if (lower.includes('unban')) {
-    return await moderationActions.unban(ctx, replyUserId, replyUsername);
+    return await moderationActions.unban(ctx, replyUserId, userName);
   }
 
   return null;
