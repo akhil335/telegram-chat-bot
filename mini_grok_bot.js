@@ -11,19 +11,18 @@ dotenv.config();
 import { handleModerationCommand } from './remModerator.js';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const OPEN_ROUTER_API = process.env.OPEN_ROUTER_API;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const BOT_USERNAME = 'rem_the_maid_bot';
 const KEYWORD = 'rem';
-const OWNER_USERNAME = 'Pritam335';
 
 const ALLOWED_GROUP_IDS = [-1001721317114];
 const ADMINS = ['Pritam335', 'almirzsa'];
 
 function escapeMarkdownV2(text) {
   if (!text) return '';
-  return text.replace(/([_\*\[\]()~`>#+=|{}.!\\\-])/g, '\\$1');
+  return text.replace(/([_\*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
 }
 
 async function askMainModel(messages) {
@@ -31,7 +30,7 @@ async function askMainModel(messages) {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -44,15 +43,16 @@ async function askMainModel(messages) {
     const data = await res.json();
     if (!res.ok) {
       console.error('Groq API error:', data);
-      return 'Oops... Groq se kuch galat ho gaya 😓';
+      return 'Oops... Groq se kuch galat ho gaya \ud83d\ude13';
     }
 
-    return data?.choices?.[0]?.message?.content?.trim() || 'Hmm... Rem confuse ho gayi 😅';
+    return data?.choices?.[0]?.message?.content?.trim() || 'Hmm... Rem confuse ho gayi \ud83d\ude05';
   } catch (err) {
     console.error('Groq network error:', err);
-    return 'Network ka chakkar hai shayad... thodi der baad try karo 🥺';
+    return 'Network ka chakkar hai shayad... thodi der baad try karo \ud83e\udd7a';
   }
 }
+
 async function getNormalizedCommand(userMessage) {
   const prompt = `Convert this into a moderation command. Assume the message is targeting the person being replied to.
 Examples:
@@ -88,7 +88,7 @@ bot.on('message', async (msg) => {
 
   if (containsModKeyword && msg.reply_to_message) {
     if (!ADMINS.includes(username)) {
-      await bot.sendMessage(chatId, escapeMarkdownV2(`Sorry 😣 par mai ye nahi kar sakti!`), {
+      await bot.sendMessage(chatId, escapeMarkdownV2(`Sorry \ud83d\ude23 par mai ye nahi kar sakti!`), {
         parse_mode: 'MarkdownV2',
         reply_to_message_id: msg.message_id
       });
@@ -113,22 +113,30 @@ bot.on('message', async (msg) => {
 
     if (cleaned.includes('unmute')) {
       response = await handleModerationCommand(`unmute @${targetUsername}`, userIdMap, bot, msg.chat, msg);
-    }
-    else if (cleaned.includes('mute')) {
+    } else if (cleaned.includes('mute')) {
       const muteDuration = duration || '2 hour';
       response = await handleModerationCommand(`mute @${targetUsername} for ${muteDuration}`, userIdMap, bot, msg.chat, msg);
-    }
-    else if (cleaned.includes('ban')) {
+    } else if (cleaned.includes('ban')) {
       response = await handleModerationCommand(`ban @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('warn')) {
       response = await handleModerationCommand(`warn @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     }
 
     if (response) {
-      await bot.sendMessage(chatId, escapeMarkdownV2(response), {
-        parse_mode: 'MarkdownV2',
-        reply_to_message_id: msg.message_id
-      });
+      try {
+        await bot.sendMessage(chatId, escapeMarkdownV2(response), {
+          parse_mode: 'MarkdownV2',
+          reply_to_message_id: msg.message_id
+        });
+      } catch (err) {
+        if (err.response?.body?.description?.includes('message to be replied not found')) {
+          await bot.sendMessage(chatId, escapeMarkdownV2(response), {
+            parse_mode: 'MarkdownV2'
+          });
+        } else {
+          console.error('Send message error:', err);
+        }
+      }
     }
     return;
   }
@@ -184,6 +192,6 @@ Always respond honestly and like a normal person.
     });
   } catch (err) {
     console.error('Bot error:', err);
-    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
+    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai \ud83d\ude16');
   }
 });
