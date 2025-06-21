@@ -6,6 +6,8 @@ import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
 import { saveUserMessage, getUserLastMessages } from './db.js';
 import dotenv from 'dotenv';
+import { handleWhisperCommand, handleWhisperButton } from './whisperHandler.js';
+
 dotenv.config();
 
 import { handleModerationCommand } from './remModerator.js';
@@ -108,6 +110,10 @@ bot.on('message', async (msg) => {
   const username = msg.from.username;
   const userMessage = msg.text?.trim();
   if (!userMessage) return;
+
+   // 🔐 Try to handle AI-based whisper
+  const whisperHandled = await handleWhisperCommand(bot, msg, userMessage, chatId);
+  if (whisperHandled) return;
 
   const isGroupChat = msg.chat.type.includes('group');
   const isPrivateChat = msg.chat.type === 'private';
@@ -225,4 +231,10 @@ bot.on('message', async (msg) => {
     console.error('Bot error:', err);
     await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
   }
+});
+
+
+// 🔓 Handle whisper open button clicks
+bot.on('callback_query', async (query) => {
+  await handleWhisperButton(bot, query);
 });
