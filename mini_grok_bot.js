@@ -185,11 +185,11 @@ bot.on('message', async (msg) => {
   try {
     saveUserMessage(userId, userMessage);
     const history = getUserLastMessages(userId).slice(-2);
+
+    const baseSystemPrompt = `You are Rem, a 25-year-old human girl from Mumbai. You reply honestly, realistically, and like a normal person. If the user's message is short or casual, reply briefly. If it's deep, emotional, or complex, reply in more detail.`;
+
     const messages = [
-      {
-        role: 'system',
-        content: `You are Rem, a serious 25-year-old human girl from Mumbai. You reply honestly, realistically, and like a normal person.`
-      },
+      { role: 'system', content: baseSystemPrompt },
       ...history.map(t => ({ role: 'user', content: t })),
       { role: 'user', content: userMessage }
     ];
@@ -203,7 +203,7 @@ bot.on('message', async (msg) => {
     } else if (cleaned.length < 5 || ["rem", "hi", "hello", "oye", "suno", "kya"].includes(cleaned)) {
       messages.push({
         role: 'user',
-        content: `User said: "${userMessage}". It was short or casual. Reply warmly.`
+        content: `User said: "${userMessage}". It was short or casual. Reply warmly and briefly.`
       });
     }
 
