@@ -6,7 +6,7 @@ import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
 import { saveUserMessage, getUserLastMessages } from './db.js';
 import dotenv from 'dotenv';
-import { handleWhisperCommand, handleWhisperButton } from './whisperHandler.js';
+import {  handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
 
 dotenv.config();
 
@@ -26,7 +26,7 @@ function escapeMarkdownV2(text) {
   return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
 }
 
-async function askMainModel(messages) {
+export async function askMainModel(messages) {
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',

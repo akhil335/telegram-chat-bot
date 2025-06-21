@@ -1,6 +1,6 @@
 // whisperHandler.js (button-based public whisper with user lock)
 
-import { askMainModel } from './mainModelHelper.js';
+import { askMainModel } from './mini_grok_bot.js';
 
 export async function handleWhisperCommand(bot, msg, userMessage, chatId) {
   const senderUsername = msg.from.username;
