@@ -1,4 +1,4 @@
-// main bot file
+// main.js
 
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
@@ -16,13 +16,12 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const BOT_USERNAME = 'rem_the_maid_bot';
 const KEYWORD = 'rem';
-
 const ALLOWED_GROUP_IDS = [-1001721317114];
 const ADMINS = ['Pritam335', 'almirzsa'];
 
 function escapeMarkdownV2(text) {
   if (!text) return '';
-  return text.replace(/([_\*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
+  return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
 }
 
 async function askMainModel(messages) {
@@ -34,13 +33,22 @@ async function askMainModel(messages) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192',
+        model: 'gemma2-9b-it',
         temperature: 0.8,
-        messages
+        max_tokens: 512,
+        messages: messages.slice(-6)
       })
     });
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error('Groq returned invalid JSON:', text);
+      return 'Oops... Groq ka reply samajh nahi aaya 😓';
+    }
+
     if (!res.ok) {
       console.error('Groq API error:', data);
       return 'Oops... Groq se kuch galat ho gaya 😓';
@@ -53,31 +61,46 @@ async function askMainModel(messages) {
   }
 }
 
+
 async function getNormalizedCommand(userMessage) {
-  const prompt = `
-You are a Telegram moderation bot.
-
-Your job is to convert a user's message into one of the following commands (and ONLY these):
-- mute @username for [duration]
-- unmute @username
-- warn @username
-- ban @username
-- unban @username
-
-Assume the user is replying to someone when saying things like:
-- "isko mute kar do"
-- "unmute him"
-- "ban this guy"
-
-Respond ONLY with the command line. Do not add any notes, descriptions, or explanations.
-
-Input message: "${userMessage}"
-Output:
-`.trim();
-
+  const prompt = `You are a Telegram moderation bot. Your job is to convert a user's message into one of the following commands: mute, unmute, warn, ban, unban. Reply only with the command. Message: "${userMessage}"`;
   return await askMainModel([{ role: 'user', content: prompt }]);
 }
 
+async function isMessageAbusive(text) {
+  const messages = [{
+    role: 'user',
+    content: `Decide if this message should be flagged as inappropriate:
+
+Flag messages that include:
+- Sexually suggestive content
+- Vulgar language
+- too much Hate speech or highly toxic content
+
+Message:
+"${text}"
+
+Reply only with "yes" or "no".`
+  }];
+
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ model: 'llama3-70b-8192', temperature: 0.2, max_tokens: 5, messages })
+    });
+
+    const data = await res.json();
+    const reply = data?.choices?.[0]?.message?.content?.trim().toLowerCase();
+    return reply?.startsWith('yes');
+  } catch (err) {
+    console.error('AI moderation error:', err.message);
+    return false;
+  }
+}
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -90,6 +113,20 @@ bot.on('message', async (msg) => {
   const isPrivateChat = msg.chat.type === 'private';
   if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
 
+  const shouldDelete = await isMessageAbusive(userMessage);
+  if (shouldDelete) {
+    try {
+      // await bot.deleteMessage(chatId, msg.message_id);
+      await bot.sendMessage(chatId, `@Pritam335\nYe message inappropriate tha, pakad raju isko chhodna mat 🙈`, {
+        parse_mode: 'MarkdownV2',
+        reply_to_message_id: msg.message_id
+      });
+    } catch (err) {
+      console.error('❌ Failed to delete or notify:', err.message);
+    }
+    return;
+  }
+
   const mentioned = userMessage.toLowerCase().includes(`@${BOT_USERNAME.toLowerCase()}`);
   const hasKeyword = userMessage.toLowerCase().includes(KEYWORD);
   const isReplyToBot = msg.reply_to_message?.from?.username === BOT_USERNAME;
@@ -97,14 +134,11 @@ bot.on('message', async (msg) => {
 
   const lowered = userMessage.toLowerCase();
   const containsModKeyword = ['warn', 'mute', 'ban', 'unmute', 'unban', 'unwarn'].some(k => lowered.includes(k));
-
-  // 🔒 Block non-admins from triggering mod commands (even funny messages like "ban him")
   if (containsModKeyword) {
     if (!ADMINS.includes(username)) return;
-    if (!msg.reply_to_message) return; // ignore if not a reply
+    if (!msg.reply_to_message) return;
   }
 
-  // ✅ Only proceed with mod command if admin & it's a reply
   if (containsModKeyword && msg.reply_to_message) {
     const chatMembers = await bot.getChatAdministrators(chatId);
     const userIdMap = {};
@@ -116,18 +150,15 @@ bot.on('message', async (msg) => {
 
     const targetUsername = msg.reply_to_message?.from?.username;
     const normalized = await getNormalizedCommand(userMessage);
-   
     const cleaned = normalized.toLowerCase();
     const durationMatch = cleaned.match(/(\d+)\s*(s|sec|min|m|hr|h|hour|hours)/i);
     const duration = durationMatch ? `${durationMatch[1]} ${durationMatch[2]}` : null;
 
     let response = null;
-    console.log(cleaned)
     if (cleaned.includes('unmute')) {
       response = await handleModerationCommand(`unmute @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('mute')) {
-      const muteDuration = duration || '2 hour';
-      response = await handleModerationCommand(`mute @${targetUsername} for ${muteDuration}`, userIdMap, bot, msg.chat, msg);
+      response = await handleModerationCommand(`mute @${targetUsername} for ${duration || '2 hour'}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('ban')) {
       response = await handleModerationCommand(`ban @${targetUsername}`, userIdMap, bot, msg.chat, msg);
     } else if (cleaned.includes('warn')) {
@@ -141,13 +172,9 @@ bot.on('message', async (msg) => {
           reply_to_message_id: msg.message_id
         });
       } catch (err) {
-        if (err.response?.body?.description?.includes('message to be replied not found')) {
-          await bot.sendMessage(chatId, escapeMarkdownV2(response), {
-            parse_mode: 'MarkdownV2'
-          });
-        } else {
-          console.error('Send message error:', err);
-        }
+        await bot.sendMessage(chatId, escapeMarkdownV2(response), {
+          parse_mode: 'MarkdownV2'
+        });
       }
     }
     return;
@@ -157,41 +184,26 @@ bot.on('message', async (msg) => {
 
   try {
     saveUserMessage(userId, userMessage);
-    const history = getUserLastMessages(userId);
+    const history = getUserLastMessages(userId).slice(-2);
     const messages = [
       {
         role: 'system',
-        content: `
-You are Rem — a normal, serious 25-year-old human girl from Mumbai.  
-You never flirt, never roleplay, and never write in a dramatic or exaggerated way.
-
-You do **not** use asterisks or describe actions like *smiles*, *blushes*, *pouts*, *giggles*, etc.  
-You do **not** talk like anime characters or do anything fantasy-like.
-
-You speak calmly, normally, and seriously — like a real 25-year-old woman chatting on Telegram.
-
-Your tone is mature, polite, direct, and realistic.  
-Avoid emojis, and keep your replies practical, brief, and human.
-
-Always respond honestly and like a normal person.
-`.trim()
+        content: `You are Rem, a serious 25-year-old human girl from Mumbai. You reply honestly, realistically, and like a normal person.`
       },
       ...history.map(t => ({ role: 'user', content: t })),
       { role: 'user', content: userMessage }
     ];
 
     const cleaned = userMessage.toLowerCase();
-    const romanticTriggers = ['pyar', 'love', 'tumse', 'pasand', 'miss', 'dil', 'shadi', 'shaadi', 'i love you'];
-
-    if (romanticTriggers.some(t => cleaned.includes(t))) {
+    if (["pyar", "love", "tumse", "pasand", "miss", "dil", "shadi", "shaadi", "i love you"].some(t => cleaned.includes(t))) {
       messages.push({
         role: 'user',
-        content: `User just said something very sweet or romantic: "${userMessage}". Blush a little and respond emotionally and cutely as a girl would when someone confesses love. Keep it short. No roleplay or asterisks.`
+        content: `User just said something very sweet or romantic: "${userMessage}". Reply emotionally and cutely like a girl would.`
       });
-    } else if (cleaned.length < 5 || ['rem', 'hi', 'hello', 'oye', 'suno', 'kya'].includes(cleaned)) {
+    } else if (cleaned.length < 5 || ["rem", "hi", "hello", "oye", "suno", "kya"].includes(cleaned)) {
       messages.push({
         role: 'user',
-        content: `User said: "${userMessage}". It was short or casual. Reply cutely and warmly, like you're talking to someone special. No drama, no actions.`
+        content: `User said: "${userMessage}". It was short or casual. Reply warmly.`
       });
     }
 

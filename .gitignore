@@ -1,6 +1,14 @@
 # Node modules
 node_modules/
 
+# in .gitignore
+rem-music/
+.env/
+venv/
+__pycache__/
+*.pyc
+
+
 # Environment variables
 .env
 
