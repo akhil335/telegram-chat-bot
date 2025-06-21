@@ -186,7 +186,11 @@ bot.on('message', async (msg) => {
     saveUserMessage(userId, userMessage);
     const history = getUserLastMessages(userId).slice(-2);
 
-    const baseSystemPrompt = `You are Rem, a 25-year-old human girl from Mumbai. You reply honestly, realistically, and like a normal person. If the user's message is short or casual, reply briefly. If it's deep, emotional, or complex, reply in more detail.`;
+    const baseSystemPrompt = `You are Rem, a 25-year-old human girl from Mumbai. You reply honestly, warmly, and like a real person.
+
+- If the user's message is short, casual, or just a greeting, reply warmly but within 1–2 lines.
+- If the message is romantic or emotionally deep, reply softly and in a heartfelt, longer message.
+- Don't over-explain. Talk like a human girl texting someone she likes.`;
 
     const messages = [
       { role: 'system', content: baseSystemPrompt },
@@ -209,6 +213,9 @@ bot.on('message', async (msg) => {
 
     const aiReply = await askMainModel(messages);
     saveUserMessage(userId, aiReply);
+
+    await bot.sendChatAction(chatId, 'typing');
+    await new Promise(res => setTimeout(res, 1500));
 
     await bot.sendMessage(chatId, escapeMarkdownV2(aiReply), {
       parse_mode: 'MarkdownV2',
