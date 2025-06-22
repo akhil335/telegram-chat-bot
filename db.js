@@ -1,20 +1,54 @@
+//  db.js
 import Database from 'better-sqlite3';
 import path from 'path';
 
-const dbPath = path.resolve('./user_messages.db'); // current folder me file banegi
+const dbPath = path.resolve('./user_messages.db');
 const db = new Database(dbPath);
 
-// Table create karo agar pehle nahi bana hai
+// Create new table for user info
+
+// 🔄 Add to existing DB init
+// (This won't overwrite existing data)
 db.exec(`
-  CREATE TABLE IF NOT EXISTS user_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    message TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
+  CREATE TABLE IF NOT EXISTS user_info (
+    user_id TEXT PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    updated_at INTEGER
   );
 `);
 
-// User ka message save karne wali function
+function cacheUserInfo(user) {
+  const { id, username, first_name, last_name } = user;
+  const updatedAt = Date.now();
+
+  const stmt = db.prepare(`
+    INSERT INTO user_info (user_id, username, first_name, last_name, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      username = excluded.username,
+      first_name = excluded.first_name,
+      last_name = excluded.last_name,
+      updated_at = excluded.updated_at
+  `);
+
+  stmt.run(id.toString(), username || null, first_name || null, last_name || null, updatedAt);
+}
+
+function getUserInfoByUsername(username) {
+  const stmt = db.prepare(`
+    SELECT * FROM user_info WHERE LOWER(username) = ?
+  `);
+  return stmt.get(username?.toLowerCase());
+}
+
+function getUserInfoById(userId) {
+  const stmt = db.prepare(`SELECT * FROM user_info WHERE user_id = ?`);
+  return stmt.get(userId.toString());
+}
+
+// Export existing functions
 function saveUserMessage(userId, message) {
   const timestamp = Date.now();
 
@@ -24,7 +58,6 @@ function saveUserMessage(userId, message) {
   `);
   insert.run(userId, message, timestamp);
 
-  // Sirf last 20 messages rakho per user
   const countStmt = db.prepare(`
     SELECT COUNT(*) as count FROM user_messages WHERE user_id = ?
   `);
@@ -40,7 +73,6 @@ function saveUserMessage(userId, message) {
     deleteOldest.run(userId, count - 20);
   }
 
-  // Total 50 users se zyada na ho, purane users ko delete karo
   const usersCountStmt = db.prepare(`
     SELECT COUNT(DISTINCT user_id) as userCount FROM user_messages
   `);
@@ -68,7 +100,6 @@ function saveUserMessage(userId, message) {
   }
 }
 
-// User ke last 20 messages le lo, purane se naya order me
 function getUserLastMessages(userId) {
   const select = db.prepare(`
     SELECT message FROM user_messages WHERE user_id = ?
@@ -79,4 +110,10 @@ function getUserLastMessages(userId) {
   return rows.map(r => r.message);
 }
 
-export { saveUserMessage, getUserLastMessages };
+export {
+  saveUserMessage,
+  getUserLastMessages,
+  cacheUserInfo,
+  getUserInfoByUsername,
+  getUserInfoById
+};

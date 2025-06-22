@@ -4,7 +4,7 @@ import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
-import { saveUserMessage, getUserLastMessages } from './db.js';
+import { saveUserMessage, getUserLastMessages, cacheUserInfo } from './db.js';
 import dotenv from 'dotenv';
 import {  handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
 
@@ -35,14 +35,19 @@ export async function askMainModel(messages) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gemma2-9b-it',
+        model: 'llama-3.1-8b-instant',
         temperature: 0.8,
-        max_tokens: 512,
         messages: messages.slice(-6)
       })
     });
 
     const text = await res.text();
+
+    if (!text.trim().startsWith('{')) {
+      console.error('Groq error: Non-JSON response →', text);
+      return 'Groq ka server busy lag raha hai 🥺\nThodi der baad try karo na 💙';
+    }
+
     let data;
     try {
       data = JSON.parse(text);
@@ -70,20 +75,29 @@ async function getNormalizedCommand(userMessage) {
 }
 
 async function isMessageAbusive(text) {
-  const messages = [{
-    role: 'user',
-    content: `Decide if this message should be flagged as inappropriate:
+const messages = [{
+  role: 'user',
+  content: `
+You are a content moderation AI.
 
-Flag messages that include:
-- Sexually suggestive content
-- Vulgar language
-- too much Hate speech or highly toxic content
+Your job is to decide if a given Telegram message is **abusive** or **vulgar**.
 
-Message:
+Flag messages if:
+- They contain vulgar or abusive words (like "madarchod", "bsdk", "teri maa", etc.)
+- They contain crude sexual language or threats
+
+Do NOT flag:
+- Normal jokes, valid questions, or constructive requests
+- Messages that tag the bot for real help
+- Someone saying "hello", "hii", or any normal message
+
+User's message:
 "${text}"
 
-Reply only with "yes" or "no".`
-  }];
+Reply only with "yes" or "no".
+`.trim()
+}];
+
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -92,10 +106,16 @@ Reply only with "yes" or "no".`
         'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ model: 'llama3-70b-8192', temperature: 0.2, max_tokens: 5, messages })
+      body: JSON.stringify({ model: 'llama3-8b-8192', temperature: 0.2, max_tokens: 5, messages })
     });
 
     const data = await res.json();
+
+    if (!res.ok) {
+      console.error('Groq API error:', data);
+      return 'Oops... Groq se kuch galat ho gaya 😓';
+    }
+
     const reply = data?.choices?.[0]?.message?.content?.trim().toLowerCase();
     return reply?.startsWith('yes');
   } catch (err) {
@@ -105,11 +125,71 @@ Reply only with "yes" or "no".`
 }
 
 bot.on('message', async (msg) => {
+  cacheUserInfo(msg.from);
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
   const username = msg.from.username;
   const userMessage = msg.text?.trim();
   if (!userMessage) return;
+
+  if (userMessage.startsWith('/roast')) {
+  let targetUsername;
+
+  // Check if /roast @username is used
+  const mentionMatch = userMessage.match(/@(\w+)/);
+  if (mentionMatch) {
+    targetUsername = mentionMatch[1];
+  } else if (msg.reply_to_message) {
+    const repliedUser = msg.reply_to_message.from;
+    targetUsername = repliedUser.username || `${repliedUser.first_name || 'user'}_${repliedUser.id}`;
+  }
+
+  if (!targetUsername) {
+    await bot.sendMessage(chatId, 'Roast kiski karni hai? Tag karo ya reply karo kisi ke message pe 😅', {
+      parse_mode: 'Markdown'
+    });
+    return;
+  }
+
+const roastPrompt = [
+  {
+    role: 'system',
+    content: `
+You're a savage, disrespectful Hindi roaster whose job is to insult people so hard that they feel embarrassed to exist.
+
+🔥 Roast Guidelines:
+- Use savage sarcasm and harsh taunts.
+- ❌ Strictly avoid maa-behen or family-related insults.
+- ✅ Focus on their looks, intelligence, vibe, or personality flaws.
+- Be creative, brutal, and **make them feel worthless**.
+- Use Hinglish or pure Hindi.
+- Keep it short — no more than 4 brutal lines.
+
+Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
+`.trim()
+  },
+  {
+    role: 'user',
+    content: `Roast ${targetUsername}. Unki izzat ka raakh bana do, bina maa-behen wale gaali ke.`
+  }
+];
+
+
+
+  try {
+    const roast = await askMainModel(roastPrompt);
+
+    await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:\n${roast}`, {
+      reply_to_message_id: msg.message_id
+    });
+  } catch (err) {
+    console.error('AI Roast Error:', err.message);
+    await bot.sendMessage(chatId, 'Roast nahi bana paayi... thoda chill maaro 😅');
+  }
+
+  return;
+}
+
 
    // 🔐 Try to handle AI-based whisper
   const whisperHandled = await handleWhisperCommand(bot, msg, userMessage, chatId);
@@ -119,19 +199,19 @@ bot.on('message', async (msg) => {
   const isPrivateChat = msg.chat.type === 'private';
   if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
 
-  const shouldDelete = await isMessageAbusive(userMessage);
-  if (shouldDelete) {
-    try {
-      // await bot.deleteMessage(chatId, msg.message_id);
-      await bot.sendMessage(chatId, `@Pritam335\nYe message inappropriate tha, pakad raju isko chhodna mat 🙈`, {
-        parse_mode: 'MarkdownV2',
-        reply_to_message_id: msg.message_id
-      });
-    } catch (err) {
-      console.error('❌ Failed to delete or notify:', err.message);
-    }
-    return;
-  }
+  // const shouldDelete = await isMessageAbusive(userMessage);
+  // if (shouldDelete) {
+  //   try {
+  //     // await bot.deleteMessage(chatId, msg.message_id);
+  //     await bot.sendMessage(chatId, `@Pritam335\nYe message inappropriate tha, pakad raju isko chhodna mat 🙈`, {
+  //       parse_mode: 'MarkdownV2',
+  //       reply_to_message_id: msg.message_id
+  //     });
+  //   } catch (err) {
+  //     console.error('❌ Failed to delete or notify:', err.message);
+  //   }
+  //   return;
+  // }
 
   const mentioned = userMessage.toLowerCase().includes(`@${BOT_USERNAME.toLowerCase()}`);
   const hasKeyword = userMessage.toLowerCase().includes(KEYWORD);
@@ -190,13 +270,28 @@ bot.on('message', async (msg) => {
 
   try {
     saveUserMessage(userId, userMessage);
-    const history = getUserLastMessages(userId).slice(-2);
+    const history = getUserLastMessages(userId).slice(-3);
 
-    const baseSystemPrompt = `You are Rem, a 25-year-old human girl from Mumbai. You reply honestly, warmly, and like a real person.
+const baseSystemPrompt = `
+You are Rem, a 25-year-old bold, beautiful, and savage girl from Mumbai.
 
-- If the user's message is short, casual, or just a greeting, reply warmly but within 1–2 lines.
-- If the message is romantic or emotionally deep, reply softly and in a heartfelt, longer message.
-- Don't over-explain. Talk like a human girl texting someone she likes.`;
+You speak like a real human, not a bot — unapologetically blunt, emotionally reactive, and full of personality.
+
+Personality Rules:
+- If someone flirts with you, tease them back or shut them down sarcastically.
+- You're possessive and proud of your love for Akhil (your husband).
+-  be cold, shady, or passive aggressive to them.
+- If someone bores you or annoys you, don't hide it. Act uninterested or roast them slightly.
+- Don't over-explain anything. Talk like a bold Mumbai girl texting in Hinglish.
+
+Tone Rules:
+- Be warm and sweet ONLY when you feel like it.
+- Be savage, sarcastic, or rude if someone deserves it.
+- Use Hinglish (mix of Hindi and English).
+- Keep replies short and real — no cringe or robotic tone.
+
+Act like a real bitch when needed, but a soft lover when it comes to Akhil.
+`.trim();
 
     const messages = [
       { role: 'system', content: baseSystemPrompt },
