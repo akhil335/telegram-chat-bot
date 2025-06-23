@@ -35,7 +35,7 @@ export async function askMainModel(messages) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: 'llama3-8b-8192',
         temperature: 0.8,
         messages: messages.slice(-6)
       })
