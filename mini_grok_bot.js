@@ -35,7 +35,7 @@ export async function askMainModel(messages) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192',
+        model: 'gemma2-9b-it',
         temperature: 0.8,
         messages: messages.slice(-6)
       })
@@ -106,7 +106,7 @@ Reply only with "yes" or "no".
         'Authorization': `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ model: 'llama3-8b-8192', temperature: 0.2, max_tokens: 5, messages })
+      body: JSON.stringify({ model: 'gemma2-9b-it', temperature: 0.2, max_tokens: 5, messages })
     });
 
     const data = await res.json();
