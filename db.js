@@ -19,6 +19,40 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS groups (
+    group_id TEXT PRIMARY KEY,
+    title TEXT,
+    username TEXT,
+    joined_at INTEGER
+  );
+`);
+
+function saveGroupInfo(chat) {
+  if (!chat.id || !chat.type.includes('group')) return;
+
+  const groupId = chat.id.toString();
+  const title = chat.title || 'Unnamed Group';
+  const username = chat.username || null;
+  const joinedAt = Date.now();
+
+  const stmt = db.prepare(`
+    INSERT INTO groups (group_id, title, username, joined_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(group_id) DO UPDATE SET
+      title = excluded.title,
+      username = excluded.username
+  `);
+
+  stmt.run(groupId, title, username, joinedAt);
+}
+
+function getAllGroups() {
+  const stmt = db.prepare(`SELECT * FROM groups ORDER BY joined_at DESC`);
+  return stmt.all();
+}
+
+
 function cacheUserInfo(user) {
   const { id, username, first_name, last_name } = user;
   const updatedAt = Date.now();
@@ -115,5 +149,7 @@ export {
   getUserLastMessages,
   cacheUserInfo,
   getUserInfoByUsername,
-  getUserInfoById
+  getUserInfoById,
+  saveGroupInfo,
+  getAllGroups
 };

@@ -1,4 +1,4 @@
-import { askMainModel } from './mini_grok_bot.js';
+import { askLLM } from './mini_grok_bot.js';
 import { getUserInfoByUsername } from './db.js'; // new util for getting userId
 
 export async function handleWhisperCommand(bot, msg, userMessage, chatId) {
@@ -6,7 +6,7 @@ export async function handleWhisperCommand(bot, msg, userMessage, chatId) {
   const senderId = msg.from.id;
 
   // Step 1: Check if it's a whisper intent
-  const intentCheck = await askMainModel([
+  const intentCheck = await askLLM([
     {
       role: 'user',
       content: `
@@ -33,7 +33,7 @@ User message: "${userMessage}"
   if (!intentCheck.toLowerCase().startsWith('yes')) return false;
 
   // Step 2: Extract whisper username and message
-  const whisperInfo = await askMainModel([
+  const whisperInfo = await askLLM([
     {
       role: 'user',
       content: `

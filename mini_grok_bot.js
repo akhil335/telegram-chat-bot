@@ -4,7 +4,7 @@ import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
-import { saveUserMessage, getUserLastMessages, cacheUserInfo } from './db.js';
+import { saveUserMessage, getUserLastMessages, cacheUserInfo, saveGroupInfo, getAllGroups } from './db.js';
 import dotenv from 'dotenv';
 import {  handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
 
@@ -26,52 +26,124 @@ function escapeMarkdownV2(text) {
   return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
 }
 
-export async function askMainModel(messages) {
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
+export async function askLLM(messages) {
+  const finalMessages = messages.slice(-6);
+  const temperature = 0.8;
+
+  const modelSources = [
+    // 💨 Groq models (fastest)
+    {
+      provider: 'groq',
+      name: 'gemma-7b-it',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
       headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
         'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gemma2-9b-it',
-        temperature: 0.8,
-        messages: messages.slice(-6)
-      })
-    });
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'gemma2-9b-it',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'llama3-8b-8192',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'mixtral-8x7b-32768',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
 
-    const text = await res.text();
-
-    if (!text.trim().startsWith('{')) {
-      console.error('Groq error: Non-JSON response →', text);
-      return 'Groq ka server busy lag raha hai 🥺\nThodi der baad try karo na 💙';
+    // 🧠 OpenRouter models (free, no card needed)
+    {
+      provider: 'openrouter',
+      name: 'mistral-7b-instruct',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'openrouter',
+      name: 'openchat/openchat-7b',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'openrouter',
+      name: 'nousresearch/nous-capybara-7b',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
     }
+  ];
 
-    let data;
+  for (const model of modelSources) {
     try {
-      data = JSON.parse(text);
-    } catch {
-      console.error('Groq returned invalid JSON:', text);
-      return 'Oops... Groq ka reply samajh nahi aaya 😓';
-    }
+      const body = {
+        model: model.name,
+        messages: finalMessages,
+        temperature
+      };
 
-    if (!res.ok) {
-      console.error('Groq API error:', data);
-      return 'Oops... Groq se kuch galat ho gaya 😓';
-    }
+      // Add router ID for OpenRouter
+      if (model.provider === 'openrouter') {
+        body.model = model.name;
+        body.router = 'openrouter';
+      }
 
-    return data?.choices?.[0]?.message?.content?.trim() || 'Hmm... Rem confuse ho gayi 😅';
-  } catch (err) {
-    console.error('Groq network error:', err);
-    return 'Network ka chakkar hai shayad... thodi der baad try karo 🥺';
+      const res = await fetch(model.url, {
+        method: 'POST',
+        headers: model.headers,
+        body: JSON.stringify(body)
+      });
+
+      const text = await res.text();
+
+      if (!text.trim().startsWith('{')) {
+        console.warn(`⚠️ [${model.name}] returned non-JSON response.`);
+        continue;
+      }
+
+      const json = JSON.parse(text);
+      const content = json?.choices?.[0]?.message?.content?.trim();
+      if (content) {
+        // console.log(`✅ Success from ${model.provider}: ${model.name}`);
+        return content;
+      }
+    } catch (err) {
+      console.warn(`❌ Failed: ${model.name} →`, err.message);
+    }
   }
+
+  return 'Sare model thak gaye 😓 Thodi der baad try karo na 💙';
 }
 
 
 async function getNormalizedCommand(userMessage) {
   const prompt = `You are a Telegram moderation bot. Your job is to convert a user's message into one of the following commands: mute, unmute, warn, ban, unban. Reply only with the command. Message: "${userMessage}"`;
-  return await askMainModel([{ role: 'user', content: prompt }]);
+  return await askLLM([{ role: 'user', content: prompt }]);
 }
 
 async function isMessageAbusive(text) {
@@ -126,11 +198,15 @@ Reply only with "yes" or "no".
 
 bot.on('message', async (msg) => {
   cacheUserInfo(msg.from);
+  
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
   const username = msg.from.username;
   const userMessage = msg.text?.trim();
+
   if (!userMessage) return;
+  // 🛑 Skip bot commands like /groups, /start, /warn, etc.
+  if (userMessage.startsWith('/')) return;
 
   if (userMessage.startsWith('/roast')) {
   let targetUsername;
@@ -177,7 +253,7 @@ Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
 
 
   try {
-    const roast = await askMainModel(roastPrompt);
+    const roast = await askLLM(roastPrompt);
 
     await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:\n${roast}`, {
       reply_to_message_id: msg.message_id
@@ -196,6 +272,11 @@ Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
   if (whisperHandled) return;
 
   const isGroupChat = msg.chat.type.includes('group');
+
+  if (isGroupChat) {
+    saveGroupInfo(msg.chat);
+  }
+
   const isPrivateChat = msg.chat.type === 'private';
   if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
 
@@ -312,7 +393,7 @@ Act like a real bitch when needed, but a soft lover when it comes to Akhil.
       });
     }
 
-    const aiReply = await askMainModel(messages);
+    const aiReply = await askLLM(messages);
     saveUserMessage(userId, aiReply);
 
     await bot.sendChatAction(chatId, 'typing');
@@ -333,3 +414,43 @@ Act like a real bitch when needed, but a soft lover when it comes to Akhil.
 bot.on('callback_query', async (query) => {
   await handleWhisperButton(bot, query);
 });
+
+bot.onText(/^\/groups$/, async (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username;
+
+  if (!ADMINS.includes(username)) {
+    return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+  }
+
+  const groups = getAllGroups();
+  if (!groups.length) {
+    return bot.sendMessage(chatId, 'Rem abhi kisi bhi group mein nahi hai 😶');
+  }
+
+  let output = '🤖 Rem is active in:\n\n';
+
+  for (const group of groups) {
+    let linkText = '';
+    try {
+      const chatInfo = await bot.getChat(group.group_id);
+      if (chatInfo.invite_link) {
+        linkText = `[Invite Link](${chatInfo.invite_link})`;
+      } else {
+        // Try exporting a new one (needs admin rights)
+        const invite = await bot.exportChatInviteLink(group.group_id);
+        linkText = `[Invite Link](${invite})`;
+      }
+    } catch (err) {
+      console.warn(`⚠️ Can't get invite link for ${group.title}:`, err.message);
+    }
+
+    output += `• ${group.title} → \`${group.group_id}\` [${linkText || ''}]\n`;
+  }
+
+  await bot.sendMessage(chatId, output, {
+    parse_mode: 'Markdown',
+    disable_web_page_preview: true
+  });
+});
+
