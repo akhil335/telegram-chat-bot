@@ -34,15 +34,6 @@ export async function askLLM(messages) {
     // 💨 Groq models (fastest)
     {
       provider: 'groq',
-      name: 'gemma-7b-it',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
       name: 'gemma2-9b-it',
       url: 'https://api.groq.com/openai/v1/chat/completions',
       headers: {
@@ -52,7 +43,7 @@ export async function askLLM(messages) {
     },
     {
       provider: 'groq',
-      name: 'llama3-8b-8192',
+      name: 'llama-3.1-8b-instant',
       url: 'https://api.groq.com/openai/v1/chat/completions',
       headers: {
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
@@ -61,7 +52,25 @@ export async function askLLM(messages) {
     },
     {
       provider: 'groq',
-      name: 'mixtral-8x7b-32768',
+      name: 'deepseek-r1-distill-llama-70b',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'mistral-saba-24b',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'llama-3.3-70b-versatile',
       url: 'https://api.groq.com/openai/v1/chat/completions',
       headers: {
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
@@ -96,6 +105,42 @@ export async function askLLM(messages) {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json'
       }
+    },
+    {
+      provider: 'openrouter',
+      name: 'openai/gpt-3.5-turbo-0301',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'openrouter',
+      name: 'meta-llama/llama-2-13b-chat',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'openrouter',
+      name: 'qwen/qwen3-0.6b-04-28',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'openrouter',
+      name: 'openchat/openchat-7b',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
     }
   ];
 
@@ -120,7 +165,7 @@ export async function askLLM(messages) {
       });
 
       const text = await res.text();
-
+      
       if (!text.trim().startsWith('{')) {
         console.warn(`⚠️ [${model.name}] returned non-JSON response.`);
         continue;
@@ -197,13 +242,14 @@ Reply only with "yes" or "no".
 }
 
 bot.on('message', async (msg) => {
+ 
   cacheUserInfo(msg.from);
   
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
   const username = msg.from.username;
   const userMessage = msg.text?.trim();
-
+  
   if (!userMessage) return;
   // 🛑 Skip bot commands like /groups, /start, /warn, etc.
   if (userMessage.startsWith('/')) return;
@@ -253,6 +299,7 @@ Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
 
 
   try {
+
     const roast = await askLLM(roastPrompt);
 
     await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:\n${roast}`, {
@@ -276,9 +323,9 @@ Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
   if (isGroupChat) {
     saveGroupInfo(msg.chat);
   }
-
+ 
   const isPrivateChat = msg.chat.type === 'private';
-  if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
+  // if (isGroupChat && !ALLOWED_GROUP_IDS.includes(chatId)) return;
 
   // const shouldDelete = await isMessageAbusive(userMessage);
   // if (shouldDelete) {
@@ -350,6 +397,7 @@ Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
   if (!shouldRespond) return;
 
   try {
+   
     saveUserMessage(userId, userMessage);
     const history = getUserLastMessages(userId).slice(-3);
 
@@ -445,7 +493,7 @@ bot.onText(/^\/groups$/, async (msg) => {
       console.warn(`⚠️ Can't get invite link for ${group.title}:`, err.message);
     }
 
-    output += `• ${group.title} → \`${group.group_id}\` [${linkText || ''}]\n`;
+    output += `• ${group.title} → [${linkText || ''}]\n\n`;
   }
 
   await bot.sendMessage(chatId, output, {
