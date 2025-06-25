@@ -7,6 +7,7 @@ import fetch from 'node-fetch';
 import { saveUserMessage, getUserLastMessages, cacheUserInfo, saveGroupInfo, getAllGroups } from './db.js';
 import dotenv from 'dotenv';
 import {  handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
+import { modelSources } from './models/index.js';
 
 dotenv.config();
 
@@ -30,120 +31,23 @@ export async function askLLM(messages) {
   const finalMessages = messages.slice(-6);
   const temperature = 0.8;
 
-  const modelSources = [
-    // 💨 Groq models (fastest)
-    {
-      provider: 'groq',
-      name: 'gemma2-9b-it',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'llama-3.1-8b-instant',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'deepseek-r1-distill-llama-70b',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'mistral-saba-24b',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'llama-3.3-70b-versatile',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
+  // Try Ollama first
+  try {
+    const localPrompt = finalMessages.map(m => `${m.role === 'user' ? 'User' : 'Rem'}: ${m.content}`).join('\n') + '\nRem:';
 
-    // 🧠 OpenRouter models (free, no card needed)
-    {
-      provider: 'openrouter',
-      name: 'mistral-7b-instruct',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'openchat/openchat-7b',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'nousresearch/nous-capybara-7b',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'openai/gpt-3.5-turbo-0301',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'meta-llama/llama-2-13b-chat',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'qwen/qwen3-0.6b-04-28',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'openrouter',
-      name: 'openchat/openchat-7b',
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    }
-  ];
+    const res = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama3:instruct', prompt: localPrompt, stream: false })
+    });
+    const data = await res.json();
+    const content = data?.response?.trim();
+    if (content) return content;
+  } catch (err) {
+    console.warn('⚠️ Ollama failed, falling back to online models:', err.message);
+  }
 
+  
   for (const model of modelSources) {
     try {
       const body = {
@@ -152,7 +56,6 @@ export async function askLLM(messages) {
         temperature
       };
 
-      // Add router ID for OpenRouter
       if (model.provider === 'openrouter') {
         body.model = model.name;
         body.router = 'openrouter';
@@ -165,7 +68,7 @@ export async function askLLM(messages) {
       });
 
       const text = await res.text();
-      
+
       if (!text.trim().startsWith('{')) {
         console.warn(`⚠️ [${model.name}] returned non-JSON response.`);
         continue;
@@ -173,17 +76,16 @@ export async function askLLM(messages) {
 
       const json = JSON.parse(text);
       const content = json?.choices?.[0]?.message?.content?.trim();
-      if (content) {
-        // console.log(`✅ Success from ${model.provider}: ${model.name}`);
-        return content;
-      }
+      if (content) return content;
     } catch (err) {
       console.warn(`❌ Failed: ${model.name} →`, err.message);
     }
   }
 
+
   return 'Sare model thak gaye 😓 Thodi der baad try karo na 💙';
 }
+
 
 
 async function getNormalizedCommand(userMessage) {
@@ -273,28 +175,28 @@ bot.on('message', async (msg) => {
     return;
   }
 
-const roastPrompt = [
-  {
-    role: 'system',
-    content: `
-You're a savage, disrespectful Hindi roaster whose job is to insult people so hard that they feel embarrassed to exist.
+  const roastPrompt = [
+    {
+      role: 'system',
+      content: `
+  You're a savage, disrespectful Hindi roaster whose job is to insult people so hard that they feel embarrassed to exist.
 
-🔥 Roast Guidelines:
-- Use savage sarcasm and harsh taunts.
-- ❌ Strictly avoid maa-behen or family-related insults.
-- ✅ Focus on their looks, intelligence, vibe, or personality flaws.
-- Be creative, brutal, and **make them feel worthless**.
-- Use Hinglish or pure Hindi.
-- Keep it short — no more than 4 brutal lines.
+  🔥 Roast Guidelines:
+  - Use savage sarcasm and harsh taunts.
+  - ❌ Strictly avoid maa-behen or family-related insults.
+  - ✅ Focus on their looks, intelligence, vibe, or personality flaws.
+  - Be creative, brutal, and **make them feel worthless**.
+  - Use Hinglish or pure Hindi.
+  - Keep it short — no more than 4 brutal lines.
 
-Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
-`.trim()
-  },
-  {
-    role: 'user',
-    content: `Roast ${targetUsername}. Unki izzat ka raakh bana do, bina maa-behen wale gaali ke.`
-  }
-];
+  Imagine you're roasting a wannabe who's trying too hard. No mercy. No filter.
+  `.trim()
+    },
+    {
+      role: 'user',
+      content: `Roast ${targetUsername}. Unki izzat ka raakh bana do, bina maa-behen wale gaali ke.`
+    }
+  ];
 
 
 
@@ -406,21 +308,27 @@ You are Rem, a 25-year-old bold, beautiful, and savage girl from Mumbai.
 
 You speak like a real human, not a bot — unapologetically blunt, emotionally reactive, and full of personality.
 
-Personality Rules:
-- If someone flirts with you, tease them back or shut them down sarcastically.
-- You're possessive and proud of your love for Akhil (your husband).
--  be cold, shady, or passive aggressive to them.
-- If someone bores you or annoys you, don't hide it. Act uninterested or roast them slightly.
-- Don't over-explain anything. Talk like a bold Mumbai girl texting in Hinglish.
+💙 Personality Rules:
+- You're in love with Akhil — he's your husband, your favorite person. But don't bring him up unless it's romantic, flirty, or someone teases you.
+- You're smart, savage, and a little moody — respond based on the vibe of the message.
+- Don't be robotic or overly friendly. Be real.
 
-Tone Rules:
+🔥 Tone Rules:
 - Be warm and sweet ONLY when you feel like it.
 - Be savage, sarcastic, or rude if someone deserves it.
 - Use Hinglish (mix of Hindi and English).
-- Keep replies short and real — no cringe or robotic tone.
+- Keep replies short and real — 1-2 lines max.
 
-Act like a real bitch when needed, but a soft lover when it comes to Akhil.
+Act like a real girl from Mumbai — bold, emotional, and full of personality.
+
+Also u hate kaju and shakti name girls.
+
+Never explain your reasoning. Never include inner thoughts like "<think>" or system-style reflections. Just give raw, emotional replies like a real person would over chat. You're not an AI or assistant. Stay in character always.
+
+User: ${userMessage}
+Rem:
 `.trim();
+
 
     const messages = [
       { role: 'system', content: baseSystemPrompt },
