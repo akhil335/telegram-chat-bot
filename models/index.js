@@ -2,34 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const modelSources = [
-  {
-      provider: 'groq',
-      name: 'deepseek-r1-distill-llama-70b',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'compound-beta',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
-      provider: 'groq',
-      name: 'compound-beta-mini',
-      url: 'https://api.groq.com/openai/v1/chat/completions',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    },
-    {
+   {
       provider: 'groq',
       name: 'gemma2-9b-it',
       url: 'https://api.groq.com/openai/v1/chat/completions',
@@ -68,6 +41,24 @@ export const modelSources = [
     {
       provider: 'groq',
       name: 'llama-3.3-70b-versatile',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'compound-beta',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    },
+    {
+      provider: 'groq',
+      name: 'compound-beta-mini',
       url: 'https://api.groq.com/openai/v1/chat/completions',
       headers: {
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,

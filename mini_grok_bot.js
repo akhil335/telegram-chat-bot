@@ -32,20 +32,20 @@ export async function askLLM(messages) {
 
   
   // Try Ollama first
-  try {
-    const localPrompt = finalMessages.map(m => `${m.role === 'user' ? 'User' : 'Rem'}: ${m.content}`).join('\n') + '\nRem:';
+  // try {
+  //   const localPrompt = finalMessages.map(m => `${m.role === 'user' ? 'User' : 'Rem'}: ${m.content}`).join('\n') + '\nRem:';
 
-    const res = await fetch('http://localhost:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'llama3:instruct', prompt: localPrompt, stream: false })
-    });
-    const data = await res.json();
-    const content = data?.response?.trim();
-    if (content) return content;
-  } catch (err) {
-    console.warn('⚠️ Ollama failed, falling back to online models:', err.message);
-  }
+  //   const res = await fetch('http://localhost:11434/api/generate', {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' },
+  //     body: JSON.stringify({ model: 'llama3:instruct', prompt: localPrompt, stream: false })
+  //   });
+  //   const data = await res.json();
+  //   const content = data?.response?.trim();
+  //   if (content) return content;
+  // } catch (err) {
+  //   console.warn('⚠️ Ollama failed, falling back to online models:', err.message);
+  // }
 
 
   for (const model of modelSources) {
@@ -68,7 +68,7 @@ export async function askLLM(messages) {
       });
 
       const text = await res.text();
-   
+      console.log(text)
       if (!text.trim().startsWith('{')) continue;
       const json = JSON.parse(text);
       const content = json?.choices?.[0]?.message?.content?.trim();
