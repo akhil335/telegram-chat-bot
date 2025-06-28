@@ -1,11 +1,16 @@
 import { askLLM } from './mini_grok_bot.js';
-import { getUserInfoByUsername } from './db.js'; // new util for getting userId
+import { getUserInfoByUsername } from './db.js';
 
 export async function handleWhisperCommand(bot, msg, userMessage, chatId) {
   const senderUsername = msg.from.username;
   const senderId = msg.from.id;
 
-  // Step 1: Check if it's a whisper intent
+  // ⚡️ Step 0: Fast local check to skip obvious non-whispers
+  const maybeWhisper = /@[\w\d_]+/.test(userMessage) &&
+    /(whisper|secret|chup|sirf|dm|private|batana)/i.test(userMessage);
+  if (!maybeWhisper) return false;
+
+  // Step 1: Confirm with LLM
   const intentCheck = await askLLM([
     {
       role: 'user',
@@ -32,7 +37,7 @@ User message: "${userMessage}"
 
   if (!intentCheck.toLowerCase().startsWith('yes')) return false;
 
-  // Step 2: Extract whisper username and message
+  // Step 2: Extract details
   const whisperInfo = await askLLM([
     {
       role: 'user',
@@ -40,7 +45,7 @@ User message: "${userMessage}"
 Extract the *exact* message that the user wants to send secretly, and the username they want to send it to.
 
 Only return the message text as-is without summarizing, translating, or changing it.
-u can take username after @ charcter.
+You can take username after @ character.
 
 Input:
 "${userMessage}"
@@ -61,7 +66,7 @@ If username is missing or invalid, use null.
   try {
     parsed = JSON.parse(whisperInfo);
   } catch (err) {
-    console.error("Whisper JSON parse error:", whisperInfo);
+    console.error("❌ Whisper JSON parse error:", whisperInfo);
     return false;
   }
 
@@ -78,20 +83,16 @@ If username is missing or invalid, use null.
   if (!whisperText || whisperText.trim().length === 0) return false;
 
   try {
-    // Step 3: Delete original message quickly
     await bot.deleteMessage(chatId, msg.message_id);
 
-    // Step 4: Resolve user ID from username
     const targetUser = await getUserInfoByUsername(targetUsername);
     const targetUserId = targetUser?.user_id || null;
 
     if (!targetUserId) {
-      await bot.sendMessage(chatId, `@${senderUsername} Rem ko us @${targetUsername} ka user ID nahi mila 😞
-Shayad wo pehle group me active nahi tha. Pehle use kuch likhne do ya join hone do.`);
+      await bot.sendMessage(chatId, `@${senderUsername} Rem ko us @${targetUsername} ka user ID nahi mila 😞\nShayad wo pehle group me active nahi tha. Pehle use kuch likhne do ya join hone do.`);
       return true;
     }
 
-    // Step 5: Send whisper button (locked by user ID)
     await bot.sendMessage(chatId, `🔐 *Whisper for @${targetUsername}*`, {
       parse_mode: 'Markdown',
       reply_markup: {
@@ -106,7 +107,7 @@ Shayad wo pehle group me active nahi tha. Pehle use kuch likhne do ya join hone 
 
     return true;
   } catch (err) {
-    console.error("Whisper button error:", err);
+    console.error("❌ Whisper button error:", err);
     return false;
   }
 }
@@ -127,7 +128,6 @@ export async function handleWhisperButton(bot, query) {
       return;
     }
 
-    // ✅ Private popup message
     await bot.answerCallbackQuery(query.id, {
       text: `💌 Whisper: ${message}`,
       show_alert: true
