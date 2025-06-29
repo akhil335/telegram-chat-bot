@@ -41,7 +41,6 @@ export async function askLLM(messages) {
         body.router = 'openrouter';
       }
 
-      console.log(`🧠 Sending prompt to model:`, JSON.stringify(body, null, 2));
       const res = await fetch(model.url, {
         method: 'POST',
         headers: model.headers,
