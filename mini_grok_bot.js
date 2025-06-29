@@ -135,46 +135,6 @@ bot.on('message', async (msg) => {
 
   // 🔐 Moderation Logic (no LLM)
   const lowered = userMessage.toLowerCase();
-  const modKeywords = ['warn', 'mute', 'ban', 'unmute', 'unban'];
-  const containsModKeyword = modKeywords.some(k => lowered.includes(k));
-
-  if (containsModKeyword && msg.reply_to_message && ADMINS.includes(username)) {
-    const chatMembers = await bot.getChatAdministrators(chatId);
-    const userIdMap = {};
-    for (const m of chatMembers) {
-      if (m.user.username) userIdMap[m.user.username.toLowerCase()] = m.user.id;
-    }
-
-    const targetUser = msg.reply_to_message.from;
-    const targetUsername = targetUser?.username || `${targetUser.first_name || 'user'}_${targetUser.id}`;
-    if (!targetUsername) return;
-
-    let action = null;
-    if (lowered.includes('unmute')) action = 'unmute';
-    else if (lowered.includes('mute')) action = 'mute';
-    else if (lowered.includes('ban')) action = 'ban';
-    else if (lowered.includes('unban')) action = 'unban';
-    else if (lowered.includes('warn')) action = 'warn';
-
-    const durationMatch = lowered.match(/(\d+)\s*(s|sec|min|m|hr|h|hour|hours)/i);
-    const duration = durationMatch ? `${durationMatch[1]} ${durationMatch[2]}` : '2 hour';
-
-    let cmdText = `${action} @${targetUsername}`;
-    if (action === 'mute') cmdText += ` for ${duration}`;
-
-    try {
-      const response = await handleModerationCommand(cmdText, userIdMap, bot, msg.chat, msg);
-      if (response) {
-        await bot.sendMessage(chatId, escapeMarkdownV2(response), {
-          parse_mode: 'MarkdownV2',
-          reply_to_message_id: msg.message_id
-        });
-      }
-    } catch (err) {
-      console.error('Mod command failed:', err.message);
-    }
-    return;
-  }
 
   // 🗣 Should Rem respond?
   const isPrivate = msg.chat.type === 'private';
