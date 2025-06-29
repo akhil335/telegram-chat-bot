@@ -1,14 +1,12 @@
-//  db.js
+// db.js
 import Database from 'better-sqlite3';
 import path from 'path';
 
 const dbPath = path.resolve('./user_messages.db');
 const db = new Database(dbPath);
 
-// Create new table for user info
+// 🔄 DB initialization
 
-// 🔄 Add to existing DB init
-// (This won't overwrite existing data)
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_info (
     user_id TEXT PRIMARY KEY,
@@ -28,9 +26,18 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    user TEXT,
+    rem TEXT,
+    timestamp INTEGER
+  );
+`);
+
 function saveGroupInfo(chat) {
   if (!chat.id || !chat.type.includes('group')) return;
-
   const groupId = chat.id.toString();
   const title = chat.title || 'Unnamed Group';
   const username = chat.username || null;
@@ -51,7 +58,6 @@ function getAllGroups() {
   const stmt = db.prepare(`SELECT * FROM groups ORDER BY joined_at DESC`);
   return stmt.all();
 }
-
 
 function cacheUserInfo(user) {
   const { id, username, first_name, last_name } = user;
@@ -82,15 +88,13 @@ function getUserInfoById(userId) {
   return stmt.get(userId.toString());
 }
 
-// Export existing functions
-function saveUserMessage(userId, message) {
+function saveUserMessage(userId, userText, remText) {
   const timestamp = Date.now();
-
   const insert = db.prepare(`
-    INSERT INTO user_messages (user_id, message, timestamp)
-    VALUES (?, ?, ?)
+    INSERT INTO user_messages (user_id, user, rem, timestamp)
+    VALUES (?, ?, ?, ?)
   `);
-  insert.run(userId, message, timestamp);
+  insert.run(userId, userText, remText, timestamp);
 
   const countStmt = db.prepare(`
     SELECT COUNT(*) as count FROM user_messages WHERE user_id = ?
@@ -136,12 +140,12 @@ function saveUserMessage(userId, message) {
 
 function getUserLastMessages(userId) {
   const select = db.prepare(`
-    SELECT message FROM user_messages WHERE user_id = ?
+    SELECT user, rem FROM user_messages WHERE user_id = ?
     ORDER BY timestamp ASC
     LIMIT 20
   `);
   const rows = select.all(userId);
-  return rows.map(r => r.message);
+  return rows;
 }
 
 export {

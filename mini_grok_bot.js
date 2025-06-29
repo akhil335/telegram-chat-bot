@@ -30,24 +30,6 @@ export async function askLLM(messages) {
   const finalMessages = messages.slice(-6);
   const temperature = 0.8;
 
-  
-  // Try Ollama first
-  // try {
-  //   const localPrompt = finalMessages.map(m => `${m.role === 'user' ? 'User' : 'Rem'}: ${m.content}`).join('\n') + '\nRem:';
-
-  //   const res = await fetch('http://localhost:11434/api/generate', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify({ model: 'llama3:instruct', prompt: localPrompt, stream: false })
-  //   });
-  //   const data = await res.json();
-  //   const content = data?.response?.trim();
-  //   if (content) return content;
-  // } catch (err) {
-  //   console.warn('⚠️ Ollama failed, falling back to online models:', err.message);
-  // }
-
-
   for (const model of modelSources) {
     try {
       const body = {
@@ -89,15 +71,12 @@ bot.on('message', async (msg) => {
   const userMessage = msg.text?.trim();
   if (!userMessage || userMessage.startsWith('/')) return;
 
-  // Whisper handler
   if (await handleWhisperCommand(bot, msg, userMessage, chatId)) return;
 
-  // Save group if needed
   if (msg.chat.type.includes('group')) {
     saveGroupInfo(msg.chat);
   }
 
-  // 🔥 Roast command
   if (userMessage.startsWith('/roast')) {
     let targetUsername = userMessage.match(/@(\w+)/)?.[1];
     if (!targetUsername && msg.reply_to_message) {
@@ -133,23 +112,17 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // 🔐 Moderation Logic (no LLM)
   const lowered = userMessage.toLowerCase();
-
-  // 🗣 Should Rem respond?
   const isPrivate = msg.chat.type === 'private';
   const mentioned = lowered.includes(`@${BOT_USERNAME.toLowerCase()}`);
-  const exactKeyword = new RegExp(`\\b${KEYWORD}\\b`, 'i').test(userMessage); // exact match
+  const exactKeyword = new RegExp(`\b${KEYWORD}\b`, 'i').test(userMessage);
   const isReplyToBot = msg.reply_to_message?.from?.username === BOT_USERNAME;
   const shouldRespond = isPrivate || mentioned || exactKeyword || isReplyToBot;
 
   if (!shouldRespond) return;
 
   try {
-    saveUserMessage(userId, userMessage);
-    const history = getUserLastMessages(userId).slice(-3);
-
-const baseSystemPrompt = `
+    const baseSystemPrompt = `
 You are Rem — a bold, emotional 25-year-old girl from Mumbai who chats like a real human.
 
 🧠 Important Instructions:
@@ -167,21 +140,26 @@ You are Rem — a bold, emotional 25-year-old girl from Mumbai who chats like a 
 Just reply like you're texting. No system thoughts, no reasoning, no assistant disclaimers.
 `.trim();
 
+    let dynamicPrompt = baseSystemPrompt;
+    if (["pyar", "love", "tumse", "pasand", "miss", "dil", "shadi", "shaadi", "i love you"].some(t => lowered.includes(t))) {
+      dynamicPrompt += `\n\nUser is being romantic, reply extra cute.`;
+    } else if (lowered.length < 5 || ["rem", "hi", "hello", "oye", "suno", "kya"].includes(lowered)) {
+      dynamicPrompt += `\n\nBe warm and caring here.`;
+    }
+
+    const recentHistory = getUserLastMessages(userId).slice(-6).flatMap(m => ([
+      { role: 'user', content: m.user },
+      { role: 'assistant', content: m.rem }
+    ]));
 
     const messages = [
-      { role: 'system', content: baseSystemPrompt },
-      ...history.map(t => ({ role: 'user', content: t })),
+      { role: 'system', content: dynamicPrompt },
+      ...recentHistory,
       { role: 'user', content: userMessage }
     ];
 
-    if (["pyar", "love", "tumse", "pasand", "miss", "dil", "shadi", "shaadi", "i love you"].some(t => lowered.includes(t))) {
-      messages.push({ role: 'user', content: `User said something romantic: "${userMessage}". Reply cutely.` });
-    } else if (lowered.length < 5 || ["rem", "hi", "hello", "oye", "suno", "kya"].includes(lowered)) {
-      messages.push({ role: 'user', content: `User said: "${userMessage}". Reply warmly.` });
-    }
-
     const aiReply = await askLLM(messages);
-    saveUserMessage(userId, aiReply);
+    saveUserMessage(userId, userMessage, aiReply);
 
     await bot.sendChatAction(chatId, 'typing');
     await new Promise(res => setTimeout(res, 1000));
@@ -196,12 +174,10 @@ Just reply like you're texting. No system thoughts, no reasoning, no assistant d
   }
 });
 
-// 🔘 Whisper button callback
 bot.on('callback_query', async (query) => {
   await handleWhisperButton(bot, query);
 });
 
-// 📋 /groups command
 bot.onText(/^\/groups$/, async (msg) => {
   const chatId = msg.chat.id;
   const username = msg.from.username;
