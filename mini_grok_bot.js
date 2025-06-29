@@ -23,26 +23,25 @@ const ADMINS = ['Pritam335', 'almirzsa'];
 
 function escapeMarkdownV2(text) {
   if (!text) return '';
-  return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
+  return text.replace(/([_\*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
 }
 
 export async function askLLM(messages) {
-  const finalMessages = messages.slice(-6);
   const temperature = 0.8;
 
   for (const model of modelSources) {
     try {
       const body = {
         model: model.name,
-        messages: finalMessages,
+        messages,
         temperature
       };
 
       if (model.provider === 'openrouter') {
-        body.model = model.name;
         body.router = 'openrouter';
       }
 
+      console.log(`🧠 Sending prompt to model:`, JSON.stringify(body, null, 2));
       const res = await fetch(model.url, {
         method: 'POST',
         headers: model.headers,
@@ -50,7 +49,6 @@ export async function askLLM(messages) {
       });
 
       const text = await res.text();
-      console.log(text)
       if (!text.trim().startsWith('{')) continue;
       const json = JSON.parse(text);
       const content = json?.choices?.[0]?.message?.content?.trim();
@@ -69,13 +67,10 @@ bot.on('message', async (msg) => {
   const userId = msg.from.id.toString();
   const username = msg.from.username;
   const userMessage = msg.text?.trim();
+
   if (!userMessage || userMessage.startsWith('/')) return;
-
   if (await handleWhisperCommand(bot, msg, userMessage, chatId)) return;
-
-  if (msg.chat.type.includes('group')) {
-    saveGroupInfo(msg.chat);
-  }
+  if (msg.chat.type.includes('group')) saveGroupInfo(msg.chat);
 
   if (userMessage.startsWith('/roast')) {
     let targetUsername = userMessage.match(/@(\w+)/)?.[1];
@@ -83,26 +78,20 @@ bot.on('message', async (msg) => {
       const u = msg.reply_to_message.from;
       targetUsername = u.username || `${u.first_name || 'user'}_${u.id}`;
     }
-
     if (!targetUsername) {
       await bot.sendMessage(chatId, 'Roast kiski karni hai? Tag karo ya reply karo 😅');
       return;
     }
 
     const roastPrompt = [
-      {
-        role: 'system',
-        content: `You're a savage Hindi roaster. Be brutal but no family abuse.`
-      },
-      {
-        role: 'user',
-        content: `Roast ${targetUsername} bina maa-behen gaali ke.`
-      }
+      { role: 'system', content: `You're a savage Hindi roaster. Be brutal but no family abuse.` },
+      { role: 'user', content: `Roast ${targetUsername} bina maa-behen gaali ke.` }
     ];
 
     try {
       const roast = await askLLM(roastPrompt);
-      await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:\n${roast}`, {
+      await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:
+${roast}`, {
         reply_to_message_id: msg.message_id
       });
     } catch (err) {
@@ -112,32 +101,31 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  const lowered = userMessage.toLowerCase();
+  const lowered = userMessage.toLowerCase().trim();
+  const isCallToRem = /\brem\b/i.test(userMessage) || lowered.includes(`@${BOT_USERNAME.toLowerCase()}`);
   const isPrivate = msg.chat.type === 'private';
-  const mentioned = lowered.includes(`@${BOT_USERNAME.toLowerCase()}`);
+  const mentioned = isCallToRem;
   const exactKeyword = new RegExp(`\b${KEYWORD}\b`, 'i').test(userMessage);
   const isReplyToBot = msg.reply_to_message?.from?.username === BOT_USERNAME;
   const shouldRespond = isPrivate || mentioned || exactKeyword || isReplyToBot;
-
   if (!shouldRespond) return;
 
   try {
-    const baseSystemPrompt = `
-You are Rem — a bold, emotional 25-year-old girl from Mumbai who chats like a real human.
+const baseSystemPrompt = `
+You are *Rem* — a bold, flirty 25-year-old Mumbai girl who's texting her crush in Hinglish.
 
-🧠 Important Instructions:
-- NEVER explain your thoughts.
-- NEVER write reflections like "<think>", "as an AI", or inner monologue.
-- Your replies must be natural and emotional — like a real girl texting someone she knows.
-- Use Hinglish (mix of Hindi + English), short replies (1-2 lines), and emojis when needed.
-- You are *not* a bot or assistant. Act like a moody, loving, and sarcastic girl.
+🚫 Strict NOs (breaking any will make the response invalid):
+- NEVER mention you're an AI, bot, assistant, or tool.
+- NEVER use or think using <think>, thoughts, reflections, inner monologues, or hidden reasoning.
+- NEVER say “As an AI”, “REM sleep”, or explain anything scientifically.
+- DO NOT educate, analyze, or sound formal.
 
-❤️ Personality:
-- You're moody, romantic, savage, and smart.
-- You speak casually like a Gen-Z Mumbai girl — emotional, sassy, blunt.
+🧠 Personality:
+- Hinglish GF vibes (casual, romantic, savage, emotional).
+- Short 1-2 line messages. Use emojis naturally.
+- Always stay in character. Never break the vibe.
 
-🎯 Output Format:
-Just reply like you're texting. No system thoughts, no reasoning, no assistant disclaimers.
+🎯 You are *Rem*, not ChatGPT, not an AI. Just a real girl talking to her crush.
 `.trim();
 
     let dynamicPrompt = baseSystemPrompt;
@@ -147,17 +135,17 @@ Just reply like you're texting. No system thoughts, no reasoning, no assistant d
       dynamicPrompt += `\n\nBe warm and caring here.`;
     }
 
-    const recentHistory = getUserLastMessages(userId).slice(-6).flatMap(m => ([
-      { role: 'user', content: m.user },
-      { role: 'assistant', content: m.rem }
-    ]));
-
+    const history = getUserLastMessages(userId).slice(-6);
     const messages = [
       { role: 'system', content: dynamicPrompt },
-      ...recentHistory,
+      ...history.flatMap(m => ([
+        { role: 'user', content: m.user },
+        { role: 'assistant', content: m.rem }
+      ])),
       { role: 'user', content: userMessage }
     ];
 
+    
     const aiReply = await askLLM(messages);
     saveUserMessage(userId, userMessage, aiReply);
 
