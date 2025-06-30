@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "main": "mini_grok_bot.js",
- "scripts": {
-  "start": "node mini_grok_bot.js",
-  "dev": "nodemon mini_grok_bot.js"
+  "scripts": {
+    "start": "node mini_grok_bot.js",
+    "dev": "nodemon mini_grok_bot.js"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +15,8 @@
     "axios": "^1.10.0",
     "better-sqlite3": "^11.10.0",
     "cheerio": "^1.1.0",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
+    "fluent-ffmpeg": "^2.1.3",
     "node-fetch": "^3.3.2",
     "node-telegram-bot-api": "^0.66.0",
     "nodemon": "^3.1.10",
