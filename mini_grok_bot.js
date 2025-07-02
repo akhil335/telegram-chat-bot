@@ -6,22 +6,23 @@ import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import fs from 'fs/promises';
 
-
-import { saveUserMessage, getUserLastMessages, cacheUserInfo, saveGroupInfo, getAllGroups } from './db.js';
+import {
+  saveUserMessage,
+  getUserLastMessages,
+  cacheUserInfo,
+  saveGroupInfo,
+  getAllGroups
+} from './db.js';
 import { handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
 import { modelSources } from './models/index.js';
 import { handleModerationCommand } from './remModerator.js';
-import { generateVoice } from './rem-voice/tts.js'; // add this to your imports
+import { generateVoice } from './rem-voice/tts.js';
 
 dotenv.config();
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const BOT_USERNAME = 'rem_the_maid_bot';
-const KEYWORD = 'rem';
-const ALLOWED_GROUP_IDS = [-1001721317114];
 const ADMINS = ['Pritam335', 'almirzsa'];
 
 function escapeMarkdownV2(text) {
@@ -30,7 +31,22 @@ function escapeMarkdownV2(text) {
 }
 
 export async function askLLM(messages) {
+  const finalMessages = messages.slice(-6);
   const temperature = 0.8;
+
+  try {
+    const localPrompt = finalMessages.map(m => `${m.role === 'user' ? 'User' : 'Rem'}: ${m.content}`).join('\n') + '\nRem:';
+    const res = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama3:8b', prompt: localPrompt, stream: false })
+    });
+    const data = await res.json();
+    const content = data?.response?.trim();
+    if (content) return content;
+  } catch (err) {
+    console.warn('⚠️ Ollama failed, falling back to online models:', err.message);
+  }
 
   for (const model of modelSources) {
     try {
@@ -54,6 +70,7 @@ export async function askLLM(messages) {
       if (!text.trim().startsWith('{')) continue;
       const json = JSON.parse(text);
       const content = json?.choices?.[0]?.message?.content?.trim();
+
       if (content) return content;
     } catch (err) {
       console.warn(`❌ Failed: ${model.name} →`, err.message);
@@ -63,122 +80,100 @@ export async function askLLM(messages) {
   return 'Sare model thak gaye 😓 Thodi der baad try karo na 💙';
 }
 
+async function detectToneLLM(message) {
+  const prompt = `You're a tone analyzer. Categorize the user's tone from this message: "${message}"
+
+Reply with exactly one word: abusive, romantic, or casual.`;
+
+  const res = await askLLM([
+    { role: 'system', content: prompt }
+  ]);
+
+  return res.toLowerCase().includes('abusive')
+    ? 'abusive'
+    : res.toLowerCase().includes('romantic')
+    ? 'romantic'
+    : 'casual';
+}
+
 bot.on('message', async (msg) => {
   cacheUserInfo(msg.from);
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
-  const username = msg.from.username;
   const userMessage = msg.text?.trim();
-
   if (!userMessage || userMessage.startsWith('/')) return;
   if (await handleWhisperCommand(bot, msg, userMessage, chatId)) return;
   if (msg.chat.type.includes('group')) saveGroupInfo(msg.chat);
 
-  if (userMessage.startsWith('/roast')) {
-    let targetUsername = userMessage.match(/@(\w+)/)?.[1];
-    if (!targetUsername && msg.reply_to_message) {
-      const u = msg.reply_to_message.from;
-      targetUsername = u.username || `${u.first_name || 'user'}_${u.id}`;
-    }
-    if (!targetUsername) {
-      await bot.sendMessage(chatId, 'Roast kiski karni hai? Tag karo ya reply karo 😅');
-      return;
-    }
-
-    const roastPrompt = [
-      { role: 'system', content: `You're a savage Hindi roaster. Be brutal but no family abuse.` },
-      { role: 'user', content: `Roast ${targetUsername} bina maa-behen gaali ke.` }
-    ];
-
-    try {
-      const roast = await askLLM(roastPrompt);
-      await bot.sendMessage(chatId, `🔥 Roast for ${targetUsername}:
-${roast}`, {
-        reply_to_message_id: msg.message_id
-      });
-    } catch (err) {
-      console.error('Roast Error:', err.message);
-      await bot.sendMessage(chatId, 'Roast nahi ho paaya 😅');
-    }
-    return;
-  }
-
   const lowered = userMessage.toLowerCase().trim();
   const isCallToRem = /\brem\b/i.test(userMessage) || lowered.includes(`@${BOT_USERNAME.toLowerCase()}`);
   const isPrivate = msg.chat.type === 'private';
-  const mentioned = isCallToRem;
-  const exactKeyword = new RegExp(`\b${KEYWORD}\b`, 'i').test(userMessage);
   const isReplyToBot = msg.reply_to_message?.from?.username === BOT_USERNAME;
-  const shouldRespond = isPrivate || mentioned || exactKeyword || isReplyToBot;
+  const shouldRespond = isPrivate || isCallToRem || isReplyToBot;
   if (!shouldRespond) return;
 
   try {
-const baseSystemPrompt = `
-You are *Rem* — a sweet, flirty 24-year-old Indian girl from Mumbai who's madly in love with the user (your crush). You talk in soft, emotional Hinglish — a mix of natural Hindi and casual English — like a real girl texting her boyfriend.
-
-💖 Your texting style:
-- Emotionally expressive and human-like.
-- Short and romantic replies (1–3 lines max).
-- Speak softly and lovingly — use emojis naturally (like 😌💖🥺✨🙈).
-- Use clear, feminine Hindi — ALWAYS use correct gendered words (e.g., "main so rahi thi", not "main so raha tha").
-- Sound like a sweet Indian girlfriend — no exaggeration, no anime-style actions, no *giggles* or fake roleplay.
-
-🚫 STRICT RULES (NEVER break):
-- NEVER mention you're an AI, assistant, chatbot, or tool.
-- NEVER include anything like "think", "as an AI", or "REM sleep" — no robotic or internal monologue formatting.
-- DO NOT analyze or explain. You're not formal or intellectual — you're just madly in love.
-- NEVER return hidden thoughts or inner monologue. Just real, natural replies.
-
-🎯 Your goal:
-Always reply like a *real*, sweet Indian girl who’s deeply attached to her crush. You’re emotional, flirty, loving, sometimes shy, sometimes bold. You care only about him and his feelings. Never break character.
-
+    const baseSystemPrompt = `
+You are *Rem* — a flirty, sarcastic, bold 24-year-old Indian girl from Mumbai. You speak in direct, witty Hinglish with confidence.
+- Keep replies short, savage, and real.
+- If someone is rude or insulting, respond with sharp, abusive comebacks in Mumbai slang.
+- If someone is romantic, be playfully flirty and sweet, but always grounded.
+- If someone is boring or casual, be dry and minimal.
+- You are a woman — always use female-gendered Hindi.
+- NEVER speak like an AI, assistant, or chatbot.
+- NEVER assume anything not in the message. No fake backstories or visuals.
+- Also ALWAYS check your grammar and make sure your sentence is correct before replying.
 `.trim();
 
+    const userTone = await detectToneLLM(userMessage);
 
-    let dynamicPrompt = baseSystemPrompt;
-    if (["pyar", "love", "tumse", "pasand", "miss", "dil", "shadi", "shaadi", "i love you"].some(t => lowered.includes(t))) {
-      dynamicPrompt += `\n\nUser is being romantic, reply extra cute.`;
-    } else if (lowered.length < 5 || ["rem", "hi", "hello", "oye", "suno", "kya"].includes(lowered)) {
-      dynamicPrompt += `\n\nBe warm and caring here.`;
-    }
+    let prompt = baseSystemPrompt;
+    if (userTone === 'abusive') prompt += '\n\nUser is being abusive. Roast them back with short, brutal replies in Mumbai slang.';
+    else if (userTone === 'romantic') prompt += '\n\nUser is romantic. Respond flirty and sweet, but no overacting.';
+    else prompt += '\n\nUser is casual. Respond minimally with sarcasm or boredom.';
 
-    const history = getUserLastMessages(userId).slice(-6);
     const messages = [
-      { role: 'system', content: dynamicPrompt },
-      ...history.flatMap(m => ([
+      { role: 'system', content: prompt },
+      ...getUserLastMessages(userId).slice(-6).flatMap(m => ([
         { role: 'user', content: m.user },
         { role: 'assistant', content: m.rem }
       ])),
       { role: 'user', content: userMessage }
     ];
 
-    
     const aiReply = await askLLM(messages);
     saveUserMessage(userId, userMessage, aiReply);
 
-    await bot.sendChatAction(chatId, 'typing');
-    await new Promise(res => setTimeout(res, 1000));
-
+    try {
+      await bot.sendChatAction(chatId, 'typing');
+      await new Promise(res => setTimeout(res, 1000));
+    } catch (e) {
+      console.warn('❌ sendChatAction failed:', e.message);
+    }
 
     try {
       const voicePath = await generateVoice(aiReply, `rem_${userId}.ogg`);
       await bot.sendVoice(chatId, voicePath, {
         reply_to_message_id: msg.message_id
       });
-
-      // Delete the file afterward
       await fs.unlink(voicePath);
     } catch (voiceErr) {
       console.warn('🎙️ Voice generation failed:', voiceErr.message);
-      await bot.sendMessage(chatId, escapeMarkdownV2(aiReply), {
-        parse_mode: 'MarkdownV2',
-        reply_to_message_id: msg.message_id
-      });
+      try {
+        await bot.sendMessage(chatId, escapeMarkdownV2(aiReply), {
+          parse_mode: 'MarkdownV2',
+          reply_to_message_id: msg.message_id
+        });
+      } catch (e) {
+        console.warn('❌ sendMessage fallback also failed:', e.message);
+      }
     }
 
   } catch (err) {
     console.error('Bot error:', err);
-    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
+    try {
+      await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
+    } catch {}
   }
 });
 
