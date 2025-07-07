@@ -89,7 +89,7 @@ If username is missing or invalid, use null.
     const targetUserId = targetUser?.user_id || null;
 
     if (!targetUserId) {
-      await bot.sendMessage(chatId, `@${senderUsername} Rem ko us @${targetUsername} ka user ID nahi mila 😞\nShayad wo pehle group me active nahi tha. Pehle use kuch likhne do ya join hone do.`);
+      // await bot.sendMessage(chatId, `@${senderUsername} Rem ko us @${targetUsername} ka user ID nahi mila 😞\nShayad wo pehle group me active nahi tha. Pehle use kuch likhne do ya join hone do.`);
       return true;
     }
 

@@ -14,6 +14,7 @@ import {
   getAllGroups
 } from './db.js';
 import { handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
+import { registerReminderCommands, restoreReminders } from './commands/reminder.js';
 import { modelSources } from './models/index.js';
 import { handleModerationCommand } from './remModerator.js';
 import { generateVoice } from './rem-voice/tts.js';
@@ -220,3 +221,9 @@ bot.onText(/^\/groups$/, async (msg) => {
     disable_web_page_preview: true
   });
 });
+
+
+
+// commands intializing
+registerReminderCommands(bot, ADMINS);
+restoreReminders(bot);

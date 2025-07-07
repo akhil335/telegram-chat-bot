@@ -36,6 +36,16 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reminders (
+    chat_id TEXT,
+    message_id INTEGER,
+    interval INTEGER,
+    active INTEGER DEFAULT 1,
+    PRIMARY KEY (chat_id, message_id)
+  );
+`);
+
 function saveGroupInfo(chat) {
   if (!chat.id || !chat.type.includes('group')) return;
   const groupId = chat.id.toString();
@@ -148,6 +158,26 @@ function getUserLastMessages(userId) {
   return rows;
 }
 
+// 🆕 Reminder Functions
+function saveReminder(chatId, messageId, interval) {
+  db.prepare(`
+    INSERT OR REPLACE INTO reminders (chat_id, message_id, interval, active)
+    VALUES (?, ?, ?, 1)
+  `).run(chatId, messageId, interval);
+}
+
+function removeReminder(chatId, messageId) {
+  db.prepare(`
+    UPDATE reminders SET active = 0 WHERE chat_id = ? AND message_id = ?
+  `).run(chatId, messageId);
+}
+
+function getActiveReminders() {
+  return db.prepare(`
+    SELECT * FROM reminders WHERE active = 1
+  `).all();
+}
+
 export {
   saveUserMessage,
   getUserLastMessages,
@@ -155,5 +185,8 @@ export {
   getUserInfoByUsername,
   getUserInfoById,
   saveGroupInfo,
-  getAllGroups
+  getAllGroups,
+  saveReminder,
+  removeReminder,
+  getActiveReminders
 };
