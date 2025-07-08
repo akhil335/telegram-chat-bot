@@ -172,6 +172,11 @@ function removeReminder(chatId, messageId) {
   `).run(chatId, messageId);
 }
 
+function clearAllReminders() {
+  const stmt = db.prepare(`DELETE FROM reminders`);
+  stmt.run();
+}
+
 function getActiveReminders() {
   return db.prepare(`
     SELECT * FROM reminders WHERE active = 1
@@ -188,5 +193,6 @@ export {
   getAllGroups,
   saveReminder,
   removeReminder,
-  getActiveReminders
+  getActiveReminders,
+  clearAllReminders
 };

@@ -1,5 +1,5 @@
 // commands/reminder.js
-import { saveReminder, removeReminder, getActiveReminders } from '../db.js';
+import { saveReminder, removeReminder, getActiveReminders, clearAllReminders } from '../db.js';
 
 const reminders = {};
 
@@ -62,12 +62,19 @@ export function registerReminderCommands(bot, ADMINS) {
     const messageId = repliedMsg.message_id;
     const key = `${chatId}_${messageId}`;
 
-    if (reminders[key]) {
-      clearInterval(reminders[key]);
-      delete reminders[key];
+  if (reminders[key]) {
+    clearInterval(reminders[key]);
+    delete reminders[key];
+    removeReminder(chatId, messageId);
+    return bot.sendMessage(chatId, '🛑 Reminder stopped.');
+  } else {
+    // Check DB anyway
+    const stillInDB = getActiveReminders().find(r => r.chat_id === chatId && r.message_id === messageId);
+    if (stillInDB) {
       removeReminder(chatId, messageId);
-      return bot.sendMessage(chatId, '🛑 Reminder stopped.');
+      return bot.sendMessage(chatId, '🟡 Reminder was not active in memory, but removed from DB.');
     }
+}
 
     return bot.sendMessage(chatId, '⚠️ Koi active reminder nahi mila is poll ke liye.');
   });
@@ -96,6 +103,24 @@ export function registerReminderCommands(bot, ADMINS) {
       disable_web_page_preview: true
     });
   });
+
+  bot.onText(/^\/resetreminders$/, async (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username;
+
+  if (!ADMINS.includes(username)) {
+    return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+  }
+
+  // Stop all in-memory reminders
+  Object.values(reminders).forEach(clearInterval);
+  for (const key in reminders) delete reminders[key];
+
+  // Remove all from DB
+  clearAllReminders();
+
+  await bot.sendMessage(chatId, '🧹 All reminders have been reset (memory + DB).');
+})
 }
 
 export async function restoreReminders(bot) {
@@ -122,3 +147,4 @@ export async function restoreReminders(bot) {
   }
 
 }
+
