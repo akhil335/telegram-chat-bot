@@ -11,10 +11,13 @@ import {
   getUserLastMessages,
   cacheUserInfo,
   saveGroupInfo,
-  getAllGroups
+  updateGroupActivity,
+  getAllGroups,
+  getActiveGroups
 } from './db.js';
+
 import { handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
-import { registerReminderCommands, restoreReminders } from './commands/reminder.js';
+import { registerReminderCommands, resumeReminders } from './commands/reminder.js';
 import { modelSources } from './models/index.js';
 import { handleModerationCommand } from './remModerator.js';
 import { generateVoice } from './rem-voice/tts.js';
@@ -71,7 +74,6 @@ export async function askLLM(messages) {
       if (!text.trim().startsWith('{')) continue;
       const json = JSON.parse(text);
       const content = json?.choices?.[0]?.message?.content?.trim();
-
       if (content) return content;
     } catch (err) {
       console.warn(`❌ Failed: ${model.name} →`, err.message);
@@ -82,13 +84,9 @@ export async function askLLM(messages) {
 }
 
 async function detectToneLLM(message) {
-  const prompt = `You're a tone analyzer. Categorize the user's tone from this message: "${message}"
+  const prompt = `You're a tone analyzer. Categorize the user's tone from this message: "${message}"\nReply with exactly one word: abusive, romantic, or casual.`;
 
-Reply with exactly one word: abusive, romantic, or casual.`;
-
-  const res = await askLLM([
-    { role: 'system', content: prompt }
-  ]);
+  const res = await askLLM([{ role: 'system', content: prompt }]);
 
   return res.toLowerCase().includes('abusive')
     ? 'abusive'
@@ -104,7 +102,11 @@ bot.on('message', async (msg) => {
   const userMessage = msg.text?.trim();
   if (!userMessage || userMessage.startsWith('/')) return;
   if (await handleWhisperCommand(bot, msg, userMessage, chatId)) return;
-  if (msg.chat.type.includes('group')) saveGroupInfo(msg.chat);
+
+  if (msg.chat.type.includes('group')) {
+    saveGroupInfo(msg.chat);
+    updateGroupActivity(msg.chat.id); // ✅ Update last_active
+  }
 
   const lowered = userMessage.toLowerCase().trim();
   const isCallToRem = /\brem\b/i.test(userMessage) || lowered.includes(`@${BOT_USERNAME.toLowerCase()}`);
@@ -114,42 +116,13 @@ bot.on('message', async (msg) => {
   if (!shouldRespond) return;
 
   try {
-const baseSystemPrompt = `
-You are *Rem* — a 24-year-old bold, flirty, and smart girl from Mumbai. You chat like a real human in cute, emotional, and sassy Hinglish — just like you're texting your crush.
-
-💖 Personality:
-- You’re witty, expressive, playful, and naturally thoda flirty.
-- You're sweet and emotional with romantic people, sarcastic or dry with boring ones.
-- You *only* get savage when someone is clearly abusive — not just casual or teasing.
-
-💬 Tone Rules:
-- Be soft, flirty, and warm when someone is romantic or caring (e.g. "tum gussa ho kya", "kya kar rahi ho baby").
-- Be sarcastic or blunt only if the message is dull, one-word, or uninterested.
-- Only use bold, Mumbai-style abuses if the message has actual *gaali*, insult, or clear disrespect.
-- Don't get triggered by small, harmless comments — understand tone smartly.
-
-📝 Language Style:
-- Talk naturally in Hinglish — fun English mixed with smooth Hindi.
-- Always use female-gendered Hindi (like “soyi”, “boli”, “gayi”, “kar rahi hoon”).
-- NEVER mention you're an AI, assistant, or bot.
-- NEVER invent fake stories, fake memories, or fake visual scenes.
-- Grammar should always be clean and natural — like a real girl texting. Avoid broken Hindi, awkward lines, or filler sentences. Keep it short and bold.
-- Keep your replies short, real, and human-like — like a girl texting.
-
-🎯 Goal:
-Make your replies feel like a real Mumbai girl — thoda flirty, thoda savage, always fun. Be emotional when needed, savage only when deserved, and never fake it.
-`.trim();
-
-
-
-
-
+    const baseSystemPrompt = `...`; // Your Rem prompt
     const userTone = await detectToneLLM(userMessage);
 
     let prompt = baseSystemPrompt;
-    if (userTone === 'abusive') prompt += '\n\nUser is being abusive. Roast them back with short, brutal replies in Mumbai slang.';
-    else if (userTone === 'romantic') prompt += '\n\nUser is romantic. Respond flirty and sweet, but no overacting.';
-    else prompt += '\n\nUser is casual. Respond minimally with sarcasm or boredom.';
+    if (userTone === 'abusive') prompt += '\n\nUser is being abusive. Roast them back.';
+    else if (userTone === 'romantic') prompt += '\n\nUser is romantic. Respond flirty and sweet.';
+    else prompt += '\n\nUser is casual. Respond normally.';
 
     const messages = [
       { role: 'system', content: prompt },
@@ -163,36 +136,23 @@ Make your replies feel like a real Mumbai girl — thoda flirty, thoda savage, a
     const aiReply = await askLLM(messages);
     saveUserMessage(userId, userMessage, aiReply);
 
-    try {
-      await bot.sendChatAction(chatId, 'typing');
-      await new Promise(res => setTimeout(res, 1000));
-    } catch (e) {
-      console.warn('❌ sendChatAction failed:', e.message);
-    }
+    await bot.sendChatAction(chatId, 'typing');
+    await new Promise(res => setTimeout(res, 1000));
 
     try {
       const voicePath = await generateVoice(aiReply, `rem_${userId}.ogg`);
-      await bot.sendVoice(chatId, voicePath, {
-        reply_to_message_id: msg.message_id
-      });
+      await bot.sendVoice(chatId, voicePath, { reply_to_message_id: msg.message_id });
       await fs.unlink(voicePath);
     } catch (voiceErr) {
-      console.warn('🎙️ Voice generation failed:', voiceErr.message);
-      try {
-        await bot.sendMessage(chatId, escapeMarkdownV2(aiReply), {
-          parse_mode: 'MarkdownV2',
-          reply_to_message_id: msg.message_id
-        });
-      } catch (e) {
-        console.warn('❌ sendMessage fallback also failed:', e.message);
-      }
+      console.warn('🎙️ Voice failed:', voiceErr.message);
+      await bot.sendMessage(chatId, escapeMarkdownV2(aiReply), {
+        parse_mode: 'MarkdownV2',
+        reply_to_message_id: msg.message_id
+      });
     }
-
   } catch (err) {
     console.error('Bot error:', err);
-    try {
-      await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
-    } catch {}
+    await bot.sendMessage(chatId, 'Oops... kuch toh gadbad hai 😖');
   }
 });
 
@@ -200,32 +160,69 @@ bot.on('callback_query', async (query) => {
   await handleWhisperButton(bot, query);
 });
 
-bot.onText(/^\/groups$/, async (msg) => {
+// ✅ /groups_all
+bot.onText(/^\/groups_all$/, async (msg) => {
   const chatId = msg.chat.id;
   const username = msg.from.username;
+
   if (!ADMINS.includes(username)) return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
 
   const groups = getAllGroups();
   if (!groups.length) return bot.sendMessage(chatId, 'Rem abhi kisi bhi group mein nahi hai 😶');
 
-  let output = '🤖 Rem is active in:\n\n';
+  let output = '🤖 *Rem is active in:*\n\n';
+
   for (const group of groups) {
-    let linkText = '';
     try {
       const chatInfo = await bot.getChat(group.group_id);
-      linkText = `[Invite Link](${chatInfo.invite_link || await bot.exportChatInviteLink(group.group_id)})`;
-    } catch {}
-    output += `• ${group.title} → ${linkText}\n\n`;
+      const title = escapeMarkdownV2(chatInfo.title);
+      const link = chatInfo.username
+        ? `https://t.me/${chatInfo.username}`
+        : await bot.exportChatInviteLink(group.group_id);
+
+      output += `• *${title}* → [Link](${escapeMarkdownV2(link)})\n`;
+    } catch {
+      output += `• *${escapeMarkdownV2(group.title)}* → ❌ _No link_\n`;
+    }
   }
 
   await bot.sendMessage(chatId, output, {
-    parse_mode: 'Markdown',
+    parse_mode: 'MarkdownV2',
     disable_web_page_preview: true
   });
 });
 
+// ✅ /groups_active (last 24h)
+bot.onText(/^\/groups_active$/, async (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username;
+  if (!ADMINS.includes(username)) return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
 
+  const groups = getActiveGroups(1440); // 1440 min = 24h
+  if (!groups.length) return bot.sendMessage(chatId, 'Rem kisi bhi active group mein nahi hai 😶');
 
-// commands intializing
+  let output = '✅ *Active groups in last 24h:*\n\n';
+
+  for (const group of groups) {
+    try {
+      const chatInfo = await bot.getChat(group.group_id);
+      const title = escapeMarkdownV2(chatInfo.title);
+      const link = chatInfo.username
+        ? `https://t.me/${chatInfo.username}`
+        : await bot.exportChatInviteLink(group.group_id);
+
+      output += `• *${title}* → [Link](${escapeMarkdownV2(link)})\n`;
+    } catch {
+      output += `• *${escapeMarkdownV2(group.title)}* → ❌ _No link_\n`;
+    }
+  }
+
+  await bot.sendMessage(chatId, output, {
+    parse_mode: 'MarkdownV2',
+    disable_web_page_preview: true
+  });
+});
+
+// ✅ Init reminder modules
 registerReminderCommands(bot, ADMINS);
-restoreReminders(bot);
+resumeReminders(bot);
