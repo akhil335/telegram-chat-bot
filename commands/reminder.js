@@ -3,9 +3,9 @@ import {
   removeReminder,
   getActiveReminders,
   clearAllReminders
-} from '../db.js';
+} from '../db.js'; // Adjust path if needed
 
-const reminders = {};
+const reminders = {}; // Temporary memory for interval tracking only
 
 function splitMessage(msg, maxLength = 4000) {
   const parts = [];
@@ -66,6 +66,7 @@ Jaldi vote karo! or check karo pin message!
     const intervalId = setInterval(async () => {
       try {
         const rem = reminders[key];
+        if (!rem) return;
 
         if (rem.shouldDelete && rem.lastMsgIds.length) {
           for (const msgId of rem.lastMsgIds) {
@@ -93,7 +94,6 @@ Jaldi vote karo! or check karo pin message!
     reminders[key].intervalId = intervalId;
 
     saveReminder(chatId, messageId, intervalRaw, customText, shouldDelete);
-
     bot.sendMessage(chatId, `✅ Reminder started!\nEvery ${intervalRaw} min${shouldDelete ? ' (auto-delete ON)' : ''}.`);
   });
 
@@ -113,25 +113,23 @@ Jaldi vote karo! or check karo pin message!
     const messageId = repliedMsg.message_id;
     const key = `${chatId}_${messageId}`;
 
+    const activeReminders = getActiveReminders();
+    const dbReminder = activeReminders.find(r => r.chat_id === chatId && r.message_id === messageId);
+
+    if (!dbReminder) {
+      return bot.sendMessage(chatId, '⚠️ Koi active reminder nahi mila is poll ke liye.');
+    }
+
     if (reminders[key]) {
       clearInterval(reminders[key].intervalId);
       delete reminders[key];
-      removeReminder(chatId, messageId);
-      return bot.sendMessage(chatId, '🛑 Reminder stopped.');
-    } else {
-      const stillInDB = getActiveReminders().find(
-        r => r.chat_id === chatId && r.message_id === messageId
-      );
-      if (stillInDB) {
-        removeReminder(chatId, messageId);
-        return bot.sendMessage(chatId, '🟡 Reminder was not active in memory, but removed from DB.');
-      }
     }
 
-    return bot.sendMessage(chatId, '⚠️ Koi active reminder nahi mila is poll ke liye.');
+    removeReminder(chatId, messageId);
+    return bot.sendMessage(chatId, '🛑 Reminder stopped.');
   });
 
-  bot.onText(/^\/listreminders$/, async (msg) => {
+  bot.onText(/^\/listreminders$/, (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username;
 
@@ -150,13 +148,13 @@ Jaldi vote karo! or check karo pin message!
       text += `• [Poll Link](${pollLink}) — every ${rem.interval} min\n`;
     }
 
-    await bot.sendMessage(chatId, text, {
+    bot.sendMessage(chatId, text, {
       parse_mode: 'Markdown',
       disable_web_page_preview: true
     });
   });
 
-  bot.onText(/^\/resetreminders$/, async (msg) => {
+  bot.onText(/^\/resetreminders$/, (msg) => {
     const chatId = msg.chat.id;
     const username = msg.from.username;
 
@@ -168,14 +166,15 @@ Jaldi vote karo! or check karo pin message!
     for (const key in reminders) delete reminders[key];
     clearAllReminders();
 
-    await bot.sendMessage(chatId, '🧹 All reminders have been reset (memory + DB).');
+    bot.sendMessage(chatId, '🧹 All reminders have been reset (memory + DB).');
   });
 }
 
-export async function resumeReminders(bot) {
+// Resume reminders on bot startup
+export function resumeReminders(bot) {
   const rows = getActiveReminders();
   for (const row of rows) {
-    const { chat_id, message_id, interval, custom_text, should_delete } = row;
+    const { chat_id, message_id, interval, custom_text, delete_prev_message } = row;
     const pollLink = `https://t.me/c/${String(chat_id).slice(4)}/${message_id}`;
     const key = `${chat_id}_${message_id}`;
     const REMINDER_TEXT = custom_text
@@ -191,12 +190,13 @@ Jaldi vote karo! or check karo pin message!
     reminders[key] = {
       intervalId: null,
       lastMsgIds: [],
-      shouldDelete: should_delete
+      shouldDelete: delete_prev_message === 1
     };
 
     const intervalId = setInterval(async () => {
       try {
         const rem = reminders[key];
+        if (!rem) return;
 
         if (rem.shouldDelete && rem.lastMsgIds.length) {
           for (const msgId of rem.lastMsgIds) {
