@@ -35,6 +35,16 @@ registerHelpCommand(bot);
 // 🔹 Utility: Check if user is an actual Telegram group admin
 async function isAdmin(bot, chatId, userId) {
   try {
+    const chat = await bot.getChat(chatId);
+
+    // If private chat → consider the user as "admin"
+    if (chat.type === 'private') {
+      // Optional: check if userId is bot owner
+      const BOT_OWNER_ID = process.env.BOT_OWNER_ID;
+      return BOT_OWNER_ID ? userId.toString() === BOT_OWNER_ID : true;
+    }
+
+    // For groups → check actual admin list
     const admins = await bot.getChatAdministrators(chatId);
     return admins.some(admin => admin.user.id === userId);
   } catch (err) {
@@ -42,6 +52,7 @@ async function isAdmin(bot, chatId, userId) {
     return false;
   }
 }
+
 
 function escapeMarkdownV2(text) {
   if (!text) return '';
@@ -197,7 +208,7 @@ bot.on('callback_query', async (query) => {
 bot.onText(/^\/groups_all$/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-
+  console.log((await isAdmin(bot, chatId, userId), msg))
   if (!(await isAdmin(bot, chatId, userId))) {
     return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
   }
@@ -231,7 +242,7 @@ bot.onText(/^\/groups_all$/, async (msg) => {
 bot.onText(/^\/groups_active$/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-
+  // console.log(await isAdmin(bot, chatId, userId))
   if (!(await isAdmin(bot, chatId, userId))) {
     return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
   }
