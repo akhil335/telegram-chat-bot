@@ -20,12 +20,17 @@ import { registerReminderCommands, resumeReminders } from './commands/reminder.j
 import { modelSources } from './models/index.js';
 import { handleModerationCommand } from './remModerator.js';
 import { generateVoice } from './rem-voice/tts.js';
+import { registerHelpCommand } from './commands/commands.js';
 
 dotenv.config();
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const BOT_USERNAME = 'rem_the_maid_bot';
+
+
+// Register command list
+registerHelpCommand(bot);
 
 // 🔹 Utility: Check if user is an actual Telegram group admin
 async function isAdmin(bot, chatId, userId) {
