@@ -19,17 +19,16 @@ function splitMessage(msg, maxLength = 4000) {
   return parts;
 }
 
-export function registerReminderCommands(bot, ADMINS) {
+export function registerReminderCommands(bot, isAdmin) {
   bot.onText(/^\/reminder\s+([\d.]+)\s*(--delete)?\s*([\s\S]*)?$/i, async (msg, match) => {
     const chatId = msg.chat.id;
-    const username = msg.from.username;
+    if (!(await isAdmin(bot, chatId, msg.from.id))) {
+      return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
+    }
+
     const intervalRaw = parseFloat(match[1]);
     const shouldDelete = Boolean(match[2]);
     const customText = match[3]?.trim() || null;
-
-    if (!ADMINS.includes(username)) {
-      return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
-    }
 
     if (isNaN(intervalRaw) || intervalRaw < 0.08) {
       return bot.sendMessage(chatId, '⚠️ Reminder ka interval kam se kam 5 seconds hona chahiye.');
@@ -49,13 +48,7 @@ export function registerReminderCommands(bot, ADMINS) {
 
     const REMINDER_TEXT = customText
       ? `${customText}\n\n👉 ${pollLink} 💙`
-      : `
-📢 *Don't Miss Out!*
-🗳️ *Poll Chal Raha Hai!*
-
-Jaldi vote karo! or check karo pin message!  
-👉 ${pollLink} 💙
-`.trim();
+      : `📢 *Don't Miss Out!*\n🗳️ *Poll Chal Raha Hai!*\n\nJaldi vote karo! or check karo pin message!  \n👉 ${pollLink} 💙`;
 
     reminders[key] = {
       intervalId: null,
@@ -97,44 +90,46 @@ Jaldi vote karo! or check karo pin message!
     bot.sendMessage(chatId, `✅ Reminder started!\nEvery ${intervalRaw} min${shouldDelete ? ' (auto-delete ON)' : ''}.`);
   });
 
-  bot.onText(/^\/stopreminder$/, async (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username;
+ bot.onText(/^\/stopreminder$/, async (msg) => {
+  const chatId = msg.chat.id;
+  if (!(await isAdmin(bot, chatId, msg.from.id))) {
+    return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
+  }
 
-    if (!ADMINS.includes(username)) {
-      return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
-    }
+  const repliedMsg = msg.reply_to_message;
+  if (!repliedMsg) {
+    return bot.sendMessage(chatId, '⚠️ Stop command ko reply karke bhejna hota hai.');
+  }
 
-    const repliedMsg = msg.reply_to_message;
-    if (!repliedMsg) {
-      return bot.sendMessage(chatId, '⚠️ Stop command ko reply karke bhejna hota hai.');
-    }
+  const messageId = repliedMsg.message_id;
+  const activeReminders = getActiveReminders();
 
-    const messageId = repliedMsg.message_id;
-    const key = `${chatId}_${messageId}`;
-
-    const activeReminders = getActiveReminders();
-    const dbReminder = activeReminders.find(r => r.chat_id === chatId && r.message_id === messageId);
-
-    if (!dbReminder) {
-      return bot.sendMessage(chatId, '⚠️ Koi active reminder nahi mila is poll ke liye.');
-    }
-
-    if (reminders[key]) {
-      clearInterval(reminders[key].intervalId);
-      delete reminders[key];
-    }
-
-    removeReminder(chatId, messageId);
-    return bot.sendMessage(chatId, '🛑 Reminder stopped.');
+  // 🔹 Normalize for comparison
+  const dbReminder = activeReminders.find(r => {
+    const dbChatId = String(r.chat_id).replace(/\.0$/, ''); // remove ".0"
+    const currentChatId = String(chatId);
+    return dbChatId === currentChatId && Number(r.message_id) === Number(messageId);
   });
 
-  bot.onText(/^\/listreminders$/, (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username;
+  if (!dbReminder) {
+    return bot.sendMessage(chatId, '⚠️ Koi active reminder nahi mila is poll ke liye.');
+  }
 
-    if (!ADMINS.includes(username)) {
-      return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+  const key = `${chatId}_${messageId}`;
+  if (reminders[key]) {
+    clearInterval(reminders[key].intervalId);
+    delete reminders[key];
+  }
+
+  removeReminder(chatId, messageId);
+  bot.sendMessage(chatId, '🛑 Reminder stopped.');
+});
+
+
+  bot.onText(/^\/listreminders$/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!(await isAdmin(bot, chatId, msg.from.id))) {
+      return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
     }
 
     const active = getActiveReminders();
@@ -154,12 +149,10 @@ Jaldi vote karo! or check karo pin message!
     });
   });
 
-  bot.onText(/^\/resetreminders$/, (msg) => {
+  bot.onText(/^\/resetreminders$/, async (msg) => {
     const chatId = msg.chat.id;
-    const username = msg.from.username;
-
-    if (!ADMINS.includes(username)) {
-      return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+    if (!(await isAdmin(bot, chatId, msg.from.id))) {
+      return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
     }
 
     Object.values(reminders).forEach(r => clearInterval(r.intervalId));

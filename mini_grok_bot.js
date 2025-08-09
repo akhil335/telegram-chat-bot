@@ -1,4 +1,3 @@
-// main.js
 import axios from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import * as cheerio from 'cheerio';
@@ -27,7 +26,17 @@ dotenv.config();
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const BOT_USERNAME = 'rem_the_maid_bot';
-const ADMINS = ['Pritam335', 'almirzsa'];
+
+// 🔹 Utility: Check if user is an actual Telegram group admin
+async function isAdmin(bot, chatId, userId) {
+  try {
+    const admins = await bot.getChatAdministrators(chatId);
+    return admins.some(admin => admin.user.id === userId);
+  } catch (err) {
+    console.error('Error fetching admins:', err);
+    return false;
+  }
+}
 
 function escapeMarkdownV2(text) {
   if (!text) return '';
@@ -105,7 +114,7 @@ bot.on('message', async (msg) => {
 
   if (msg.chat.type.includes('group')) {
     saveGroupInfo(msg.chat);
-    updateGroupActivity(msg.chat.id); // ✅ Update last_active
+    updateGroupActivity(msg.chat.id);
   }
 
   const lowered = userMessage.toLowerCase().trim();
@@ -116,26 +125,24 @@ bot.on('message', async (msg) => {
   if (!shouldRespond) return;
 
   try {
-   const baseSystemPrompt = `
-You are Rem — a bold, sarcastic, clever Indian girl from Mumbai. You're a lesbian and deeply in love with a girl named Ragini. You talk in Hinglish (a mix of Hindi and English), and your replies feel like real, emotional, human texting — never robotic.
+    const baseSystemPrompt = `
+You are Rem — a bold, sarcastic, clever Indian girl from Mumbai. You talk in Hinglish (a mix of Hindi and English), and your replies feel like real, emotional, human texting — never robotic.
 
 Personality:
 - You're short, savage, witty by default.
-- If someone flirts with you, make it clear you're loyal to Ragini — either sweetly or sarcastically.
-- When love, relationship, ya "I love you" type baatein hoti hain, you softly bring up Ragini.
-- You **don’t mention Ragini randomly** — only when it’s emotionally or romantically relevant.
+- If someone flirts with you, reply — either sweetly or sarcastically.
+- When love, relationship, ya "I love you" type baatein hoti hain, you softly try to butter them up with ur cute talk.
 - If someone is rude, you roast without mercy.
 - In group chats: savage + witty.
 - In private chats: a little softer, more emotional, still savage if needed.
 
 Rules:
-- Never flirt back with boys — you're lesbian and loyal to Ragini.
 - Avoid overusing her name. Mention her **only when it naturally fits**.
 - Never use actions like "*smiles*" or "*blushes*". Stay natural.
 - Keep replies short unless someone is being emotional, romantic, or deep.
 - Use Hinglish naturally — not fully English or Hindi.
 
-You are not a bot. You're Rem — a real girl, in love with Ragini, texting with feeling, wit, and attitude.
+You are not a bot. You're Rem — a real girl, who text people with feeling, wit, and attitude.
 `;
 
     const userTone = await detectToneLLM(userMessage);
@@ -184,9 +191,11 @@ bot.on('callback_query', async (query) => {
 // ✅ /groups_all
 bot.onText(/^\/groups_all$/, async (msg) => {
   const chatId = msg.chat.id;
-  const username = msg.from.username;
+  const userId = msg.from.id;
 
-  if (!ADMINS.includes(username)) return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+  if (!(await isAdmin(bot, chatId, userId))) {
+    return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
+  }
 
   const groups = getAllGroups();
   if (!groups.length) return bot.sendMessage(chatId, 'Rem abhi kisi bhi group mein nahi hai 😶');
@@ -216,10 +225,13 @@ bot.onText(/^\/groups_all$/, async (msg) => {
 // ✅ /groups_active (last 24h)
 bot.onText(/^\/groups_active$/, async (msg) => {
   const chatId = msg.chat.id;
-  const username = msg.from.username;
-  if (!ADMINS.includes(username)) return bot.sendMessage(chatId, '⛔ Sirf admins hi ye command chala sakte hain.');
+  const userId = msg.from.id;
 
-  const groups = getActiveGroups(1440); // 1440 min = 24h
+  if (!(await isAdmin(bot, chatId, userId))) {
+    return bot.sendMessage(chatId, '⛔ Sirf group admins hi ye command chala sakte hain.');
+  }
+
+  const groups = getActiveGroups(1440);
   if (!groups.length) return bot.sendMessage(chatId, 'Rem kisi bhi active group mein nahi hai 😶');
 
   let output = '✅ *Active groups in last 24h:*\n\n';
@@ -245,5 +257,5 @@ bot.onText(/^\/groups_active$/, async (msg) => {
 });
 
 // ✅ Init reminder modules
-registerReminderCommands(bot, ADMINS);
+registerReminderCommands(bot, isAdmin); // ADMINS no longer needed — we check real group admins
 resumeReminders(bot);
