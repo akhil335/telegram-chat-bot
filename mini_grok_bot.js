@@ -121,11 +121,13 @@ async function detectToneLLM(message) {
 }
 
 bot.on('message', async (msg) => {
+
   cacheUserInfo(msg.from);
   const chatId = msg.chat.id;
   const userId = msg.from.id.toString();
   const userMessage = msg.text?.trim();
   if (!userMessage || userMessage.startsWith('/')) return;
+  
   if (await handleWhisperCommand(bot, msg, userMessage, chatId)) return;
 
   if (msg.chat.type.includes('group')) {
