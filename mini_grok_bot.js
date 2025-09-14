@@ -12,11 +12,14 @@ import {
   saveGroupInfo,
   updateGroupActivity,
   getAllGroups,
-  getActiveGroups
+  getActiveGroups,
+  getAdminMode, 
+  setAdminMode
 } from './db.js';
 
 import { handleWhisperButton, handleWhisperCommand } from './whisperHandler.js';
 import { registerReminderCommands, resumeReminders } from './commands/reminder.js';
+import { registerAdminCommands } from './commands/adminCommand.js';
 import { modelSources } from './models/index.js';
 import { handleModerationCommand } from './remModerator.js';
 import { generateVoice } from './rem-voice/tts.js';
@@ -274,6 +277,44 @@ bot.onText(/^\/groups_active$/, async (msg) => {
   });
 });
 
+// ✅ /adminmode on|off  → toggle global admin mode in DB
+bot.onText(/^\/adminmode\s*(on|off)$/i, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  // Only real admins (or bot owner in private) can toggle
+  if (!(await isAdmin(bot, chatId, userId))) {
+    return bot.sendMessage(chatId, '⛔ Only admins can toggle admin mode.');
+  }
+
+  const arg = match[1].toLowerCase();
+  setAdminMode(arg === 'on');      // <-- write to DB
+  const status = getAdminMode();   // <-- confirm from DB
+
+  // Delete the command message to keep chat clean
+  try { await bot.deleteMessage(chatId, msg.message_id); } catch (err) {
+    console.warn('Failed to delete command message:', err.message);
+  }
+  
+  return bot.sendMessage(
+    chatId,
+    `⚙️ Admin mode is now *${status ? 'ON' : 'OFF'}*`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// save new users id who join any group
+bot.on('new_chat_members', async (msg) => {
+  // msg.new_chat_members is an array of User objects
+  for (const member of msg.new_chat_members) {
+    cacheUserInfo(member);        // ✅ store id, username, etc.
+    saveGroupInfo(msg.chat);      // keep group table fresh
+    updateGroupActivity(msg.chat.id);
+  }
+});
+
+
 // ✅ Init reminder modules
 registerReminderCommands(bot, isAdmin); // ADMINS no longer needed — we check real group admins
+registerAdminCommands(bot, isAdmin); // ADMINS no longer needed — we check real group admins
 resumeReminders(bot);

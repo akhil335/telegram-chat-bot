@@ -24,6 +24,14 @@ db.exec(`
   );
 `);
 
+// ✅ Table for global key-value settings (e.g. admin mode)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
+
 // ✅ Migration: Add 'last_active' column to groups
 try {
   const columns = db.prepare(`PRAGMA table_info(groups)`).all();
@@ -199,6 +207,21 @@ function getActiveReminders() {
   return db.prepare(`SELECT * FROM reminders WHERE active = 1`).all();
 }
 
+
+// admin mode
+function setAdminMode(isOn) {
+  db.prepare(`
+    INSERT INTO app_settings (key, value)
+    VALUES ('admin_mode', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(isOn ? 'on' : 'off');
+}
+
+function getAdminMode() {
+  const row = db.prepare(`SELECT value FROM app_settings WHERE key = 'admin_mode'`).get();
+  return row ? row.value === 'on' : false;
+}
+
 // 🚀 Export
 export {
   cacheUserInfo,
@@ -213,5 +236,7 @@ export {
   saveReminder,
   removeReminder,
   clearAllReminders,
-  getActiveReminders
+  getActiveReminders,
+  setAdminMode,
+  getAdminMode
 };
